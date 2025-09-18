@@ -1,0 +1,18 @@
+[Unit]
+Description=SmartGrow TouchDesk Headless (PyQt5)
+#After=multi-user.target SD.service
+#Requires=SD.service
+After=SD.service
+Requires=SD.service
+
+
+[Service]
+ExecStartPost=/usr/local/bin/clear-splash.sh
+User=smartgrow
+WorkingDirectory=/home/smartgrow/Screw-Drive-Control/Base_Logic_Web
+Environment=QT_QPA_PLATFORM=eglfs
+ExecStart=/usr/bin/python3 /home/smartgrow/Screw-Drive-Control/Base_Logic_Web/touchdesk.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
