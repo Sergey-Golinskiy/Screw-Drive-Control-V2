@@ -7,11 +7,11 @@ Requires=SD.service
 
 
 [Service]
-ExecStartPost=/usr/local/bin/clear-splash.sh
-User=smartgrow
-WorkingDirectory=/home/smartgrow/Screw-Drive-Control/Base_Logic_Web
+ExecStartPost=/home/screwdrive/System/clear-splash.sh
+User=screwdrive
+WorkingDirectory=/home/screwdrive/Screw-Drive-Control-V2
 Environment=QT_QPA_PLATFORM=eglfs
-ExecStart=/usr/bin/python3 /home/smartgrow/Screw-Drive-Control/Base_Logic_Web/touchdesk.py
+ExecStart=/usr/bin/python3 /home/screwdrive/Screw-Drive-Control-V2/touchdesk.py
 Restart=always
 
 [Install]

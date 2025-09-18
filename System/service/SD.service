@@ -1,0 +1,23 @@
+[Unit]
+Description=My Python Script
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=screwdrive
+Group=screwdrive
+WorkingDirectory=/home/screwdrive/Screw-Drive-Control-V2/
+# если нужен просто python3:
+ExecStart=/usr/bin/python3 /home/screwdrive/Screw-Drive-Control-V2/web_ui.py
+# если скрипт заканчивается — убери комментарий и используй oneshot
+# Type=oneshot
+# RemainAfterExit=yes
+
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
