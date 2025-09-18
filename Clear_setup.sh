@@ -72,6 +72,16 @@ else
   echo -e "\033[1;33m⚠️ SD.service file not found. Skipping service setup.\033[0m"
 fi 
 
+header "Setting up SD_touchdesk.service"
+if [ -f ~/Screw-Drive-Control-V2/System/service/SD_touchdesk.service ]; then
+  sudo cp ~/Screw-Drive-Control-V2/System/service/SD_touchdesk.service /etc/systemd/system/SD_touchdesk.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable SD_touchdesk.service
+  sudo systemctl start SD_touchdesk.service
+else
+  echo -e "\033[1;33m⚠️ SD_touchdesk.service file not found. Skipping service setup.\033[0m"
+fi  
+
 
 header "Done ✅ Please reboot your Raspberry Pi to apply the changes"
 echo -e "\033[1;32mYou can reboot now with:\n  sudo reboot\033[0m"
