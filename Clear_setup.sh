@@ -73,6 +73,28 @@ else
 fi 
 
 header "Setting up SD_touchdesk.service"
+
+PROFILE=".bash_profile"
+
+if ! grep -q 'QT_QPA_PLATFORM=eglfs' "$PROFILE" 2>/dev/null; then
+  {
+    echo ''
+    echo '# TouchDesk PyQt eglfs KMS setup'
+    echo 'export QT_QPA_PLATFORM=eglfs'
+    echo 'export QT_QPA_EGLFS_INTEGRATION=eglfs_kms'
+    echo "export QT_QPA_EGLFS_KMS_CONFIG=/home/screwdrive/Screw-Drive-Control-V2/kms.json"
+  } >> "$PROFILE"
+  echo "[OK] Variables added in $PROFILE"
+else
+  echo "[SKIP] Variables are already in $PROFILE"
+fi
+
+# --- 3. Применяем в текущей сессии ---
+export QT_QPA_PLATFORM=eglfs
+export QT_QPA_EGLFS_INTEGRATION=eglfs_kms
+export QT_QPA_EGLFS_KMS_CONFIG="/home/screwdrive/Screw-Drive-Control-V2/kms.json"
+echo "[OK] Variables applied in this session"
+
 if [ -f ~/Screw-Drive-Control-V2/System/service/SD_touchdesk.service ]; then
   sudo cp ~/Screw-Drive-Control-V2/System/service/SD_touchdesk.service /etc/systemd/system/SD_touchdesk.service
   sudo systemctl daemon-reload
