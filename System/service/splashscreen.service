@@ -1,0 +1,14 @@
+[Unit]
+Description=Framebuffer Splash Screen
+DefaultDependencies=no
+After=local-fs.target
+Before=graphical.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=FRAMEBUFFER=/dev/fb0
+ExecStart=/usr/bin/fbi -a -T 1 -d /dev/fb0 --noverbose /opt/splash/splash.png
+
+[Install]
+WantedBy=graphical.target
