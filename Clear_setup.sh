@@ -11,7 +11,7 @@ sudo apt update
 sudo apt upgrade -y
 
 header "Installing Python and tools"
-sudo apt install -y python3 python3-pip python3-venv git
+sudo apt install -y python3 python3-pip python3-venv git python3-flask python3-requests python3-serial
 
 header "Installing GPIO and Serial libraries"
 sudo apt install -y python3-rpi-lgpio python3-serial
