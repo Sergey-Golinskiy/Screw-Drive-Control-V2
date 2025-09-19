@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Function to print green bold section headers
 header() {
@@ -10,41 +10,54 @@ header "System update"
 sudo apt update
 sudo apt upgrade -y
 
-header "Installing Python and tools"
-sudo apt install -y python3 python3-pip python3-venv git python3-flask python3-requests python3-serial
+header "Detecting arch..."
+arch=$(dpkg --print-architecture)
+foreign=$(dpkg --print-foreign-architectures || true)
+echo "    arch=$arch foreign=$foreign"
 
-header "Installing GPIO and Serial libraries"
-sudo apt install -y python3-rpi.gpio python3-serial
+header "Purging foreign armhf libs (if any)..."
+sudo apt -y purge 'libqt5*:armhf' 'libegl*:armhf' 'libgles*:armhf' 'libgbm*:armhf' 'libdrm*:armhf' 2>/dev/null || true
 
-# Add user 'screwdrive' to 'gpio' group
-if id "screwdrive" &>/dev/null; then
-    sudo adduser screwdrive gpio
-else
-    echo -e "\033[1;33m⚠️ User 'screwdrive' does not exist. Create it manually or change the username in the script.\033[0m"
-fi
+header "Purging libqt5gui5-gles (if present)..."
+sudo apt -y purge libqt5gui5-gles 2>/dev/null || true
+
+header "Fixing deps..."
+sudo apt -f -y install
+
+header "Installing PyQt5 and graphics stack..."
+sudo apt install -y python3-pyqt5 libqt5gui5 libegl1-mesa libgles2-mesa libgbm1 libdrm2
+
+header "Installing project deps..."
+sudo apt install -y python3-serial python3-requests python3-flask python3-rpi-lgpio
+
+header "Adding user to groups gpio,dialout..."
+sudo adduser "$USER" gpio || true
+sudo adduser "$USER" dialout || true
+
 
 # Grant current user access to serial devices (/dev/ttyACM0, etc.)
-sudo usermod -aG dialout "$USER"
+#sudo usermod -aG dialout "$USER"
 
-header "Installing PyQt5 and Qt libraries"
-sudo apt install -y \
-  python3 python3-pip python3-pyqt5 python3-pyqt5.sip \
-  libqt5core5a libqt5dbus5 libqt5designer5 libqt5gui5 libqt5help5 \
-  libqt5network5 libqt5printsupport5 libqt5qml5 libqt5qmlmodels5 \
-  libqt5quick5 libqt5sql5 libqt5sql5-sqlite libqt5svg5 libqt5test5 \
-  libqt5waylandclient5 libqt5waylandcompositor5 libqt5widgets5 libqt5xml5 \
-  qt5-gtk-platformtheme \
-  libegl-mesa0 libegl1 libgles2 libgles2-mesa libgbm1 libdrm2 libwayland-egl1
+#header "Installing PyQt5 and Qt libraries"
+
+#sudo apt install -y \
+##  python3 python3-pip python3-pyqt5 python3-pyqt5.sip \
+#  libqt5core5a libqt5dbus5 libqt5designer5 libqt5gui5 libqt5help5 \
+#  libqt5network5 libqt5printsupport5 libqt5qml5 libqt5qmlmodels5 \
+#  libqt5quick5 libqt5sql5 libqt5sql5-sqlite libqt5svg5 libqt5test5 \
+#  libqt5waylandclient5 libqt5waylandcompositor5 libqt5widgets5 libqt5xml5 \
+#  qt5-gtk-platformtheme \
+#  libegl-mesa0 libegl1 libgles2 libgles2-mesa libgbm1 libdrm2 libwayland-egl1
   
 # (optional, for systems without X11)
-sudo apt install -y libdrm2
+##sudo apt install -y libdrm2
 
-header "Creating Python virtual environment and installing packages"
-python3 -m venv ~/venv-ajx
-source ~/venv-ajx/bin/activate
-pip install --upgrade pip
-pip install RPi.GPIO Flask requests pyserial
-deactivate
+##header "Creating Python virtual environment and installing packages"
+#python3 -m venv ~/venv-ajx
+#source ~/venv-ajx/bin/activate
+#pip install --upgrade pip
+#pip install RPi.GPIO Flask requests pyserial
+#deactivate
 
 header "Configuring raspi-config"
 
@@ -52,7 +65,7 @@ header "Configuring raspi-config"
 sudo raspi-config nonint do_serial 0
 
 # Set boot mode: Console (B1)
-sudo raspi-config nonint do_boot_behaviour B1
+#sudo raspi-config nonint do_boot_behaviour B1
 
 sudo systemctl set-default multi-user.target
 
