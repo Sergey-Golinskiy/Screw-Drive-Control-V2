@@ -14,7 +14,7 @@ header "Installing Python and tools"
 sudo apt install -y python3 python3-pip python3-venv git python3-flask python3-requests python3-serial
 
 header "Installing GPIO and Serial libraries"
-sudo apt install -y python3-rpi-lgpio python3-serial
+sudo apt install -y python3-rpi.gpio python3-serial
 
 # Add user 'screwdrive' to 'gpio' group
 if id "screwdrive" &>/dev/null; then
@@ -27,9 +27,15 @@ fi
 sudo usermod -aG dialout "$USER"
 
 header "Installing PyQt5 and Qt libraries"
-sudo apt install -y python3-pyqt5 python3-pyqt5.qtquick \
-  libqt5gui5 libqt5widgets5 libqt5network5 libegl1-mesa libgles2-mesa
-
+sudo apt install -y \
+  python3 python3-pip python3-pyqt5 python3-pyqt5.sip \
+  libqt5core5a libqt5dbus5 libqt5designer5 libqt5gui5 libqt5help5 \
+  libqt5network5 libqt5printsupport5 libqt5qml5 libqt5qmlmodels5 \
+  libqt5quick5 libqt5sql5 libqt5sql5-sqlite libqt5svg5 libqt5test5 \
+  libqt5waylandclient5 libqt5waylandcompositor5 libqt5widgets5 libqt5xml5 \
+  qt5-gtk-platformtheme \
+  libegl-mesa0 libegl1 libgles2 libgles2-mesa libgbm1 libdrm2 libwayland-egl1
+  
 # (optional, for systems without X11)
 sudo apt install -y libdrm2
 
