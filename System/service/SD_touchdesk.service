@@ -7,7 +7,7 @@ Requires=SD.service
 
 
 [Service]
-#ExecStartPost=/home/screwdrive/Screw-Drive-Control-V2/System/clear-splash.sh
+#ExecStartPost=/opt/splash/clear-splash.sh
 User=screwdrive
 WorkingDirectory=/home/screwdrive/Screw-Drive-Control-V2/
 Environment=QT_QPA_PLATFORM=eglfs

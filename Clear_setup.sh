@@ -83,6 +83,35 @@ else
   echo -e "\033[1;33m⚠️ Directory ~/Screw-Drive-Control-V2 already exists. Skipping git clone.\033[0m"
 fi  
 
+header "Loading logo setup"
+sudo mkdir -p /opt/splash
+sudo cp /home/screwdrive/Screw-Drive-Control-V2/splash.png /opt/splash/splash.png
+sudo systemctl disable plymouth-start.service plymouth-quit.service plymouth-quit-wait.service --now || true
+sudo cp /home/screwdrive/Screw-Drive-Control-V2/System/clear-splash.sh /opt/splash/clear-splash.sh
+sudo chmod +x /opt/splash/clear-splash.sh
+sudo apt purge -y plymouth plymouth-themes
+sudo rm -rf /usr/share/plymouth || true
+sudo sed -i '/^disable_splash=/d' /boot/firmware/config.txt
+echo "disable_splash=1" | sudo tee -a /boot/firmware/config.txt
+
+sudo sed -i 's/console=tty1/console=tty3/g' /boot/firmware/cmdline.txt
+
+sudo sed -i 's/$/ quiet loglevel=3 vt.global_cursor_default=0/' /boot/firmware/cmdline.txt
+
+sudo apt install -y fbi
+
+
+header "Setting up splashscreen.service"
+if [ -f ~/Screw-Drive-Control-V2/System/service/splashscreen.service ]; then
+  sudo cp ~/Screw-Drive-Control-V2/System/service/splashscreen.service /etc/systemd/system/splashscreen.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable splashscreen.service
+  sudo systemctl start splashscreen.service
+else
+  echo -e "\033[1;33m⚠️ splashscreenD.service file not found. Skipping service setup.\033[0m"
+fi 
+
+
 header "Setting up SD.service"
 if [ -f ~/Screw-Drive-Control-V2/System/service/SD.service ]; then
   sudo cp ~/Screw-Drive-Control-V2/System/service/SD.service /etc/systemd/system/SD.service
@@ -124,6 +153,9 @@ if [ -f ~/Screw-Drive-Control-V2/System/service/SD_touchdesk.service ]; then
 else
   echo -e "\033[1;33m⚠️ SD_touchdesk.service file not found. Skipping service setup.\033[0m"
 fi  
+
+
+
 
 
 header "Done ✅ Please reboot your Raspberry Pi to apply the changes"
