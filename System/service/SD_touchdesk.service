@@ -11,8 +11,8 @@ Requires=SD.service
 User=screwdrive
 WorkingDirectory=/home/screwdrive/Screw-Drive-Control-V2/
 Environment=QT_QPA_PLATFORM=eglfs
-Environment=QT_QPA_EGLFS_INTEGRATION=eglfs_kms
-Environment=QT_QPA_EGLFS_KMS_CONFIG=/home/screwdrive/Screw-Drive-Control-V2/kms.json
+#nvironment=QT_QPA_EGLFS_INTEGRATION=eglfs_kms
+#Environment=QT_QPA_EGLFS_KMS_CONFIG=/home/screwdrive/Screw-Drive-Control-V2/kms.json
 ExecStart=/usr/bin/python3 /home/screwdrive/Screw-Drive-Control-V2/touchdesk.py
 Restart=always
 StandardOutput=journal
