@@ -54,6 +54,8 @@ sudo raspi-config nonint do_serial 0
 # Set boot mode: Console (B1)
 sudo raspi-config nonint do_boot_behaviour B1
 
+sudo systemctl set-default multi-user.target
+
 # Set boot mode: Console Autologin (B2)
 sudo raspi-config nonint do_boot_behaviour B2
 

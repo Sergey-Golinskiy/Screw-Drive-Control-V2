@@ -3,8 +3,9 @@
   "outputs": [
     {
       "name": "HDMI-A-1",
-      "mode": "1280x800",
-      "format": "xrgb8888"
+      "mode": "1280x800@60",
+      "format": "ARGB8888",
+      "transform": "normal"
     }
   ]
 }
