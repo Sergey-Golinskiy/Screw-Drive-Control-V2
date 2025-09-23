@@ -477,7 +477,7 @@ def main():
             feed_until_detect(io)                     # 9 + 10
             if not torque_sequence(io):              # 11–14 (с free-run)
                 # При таймауте по моменту возвращаемся к ожиданию педали
-                move_xy(ser, 35, 20, MOVE_F)
+                send_cmd(ser, "WORK")
                 return
 
             # --- Точка 2: X15 Y123 (пп.15–21) ---
@@ -489,7 +489,7 @@ def main():
                 # если нет импульса — повторяем подачу (логика п.10 говорит «делаем ещё раз пункт 9»)
                 feed_until_detect(io)
             if not torque_sequence(io):              # 18–21
-                move_xy(ser, 35, 20, MOVE_F)
+                send_cmd(ser, "WORK")
                 return
 
             # --- Точка 3: X54 Y123 (пп.22–28) ---
@@ -500,11 +500,11 @@ def main():
             if not wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):  # 24
                 feed_until_detect(io)                # повторяем п.9 до успеха
             if not torque_sequence(io):              # 25–28
-                move_xy(ser, 35, 20, MOVE_F)
+                send_cmd(ser, "WORK")
                 return
 
 
-            move_xy(ser, 35, 20, MOVE_F)
+            send_cmd(ser, "WORK")
 
             set_cycle_busy(False)
 
