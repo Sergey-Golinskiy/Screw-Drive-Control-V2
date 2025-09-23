@@ -456,31 +456,7 @@ def main():
 
         # 3. G28 — хоуминг, ждём ok
         send_cmd(ser, "G28")
-
-        # 4. Проверяем GER_C1_UP; если OPEN — поднять до CLOSE
-        if not io.sensor_state("GER_C1_UP"):
-            io.set_relay("R02_C1_UP", True)
-            ok = wait_sensor(io, "GER_C1_UP", True, TIMEOUT_SEC)
-            io.set_relay("R02_C1_UP", False)
-            if not ok:
-                print("[init] Не удалось поднять C1 до верха")
-                return
-
-        # 5. Включаем R04_C2 до GER_C2_DOWN=CLOSE
-        io.set_relay("R04_C2", True)
-        ok = wait_sensor(io, "GER_C2_DOWN", True, TIMEOUT_SEC)
-        if not ok:
-            io.set_relay("R04_C2", False)
-            print("[init] Не удалось опустить C2 до низа")
-            return
-
-        # 6. Выключаем R04_C2, ждём GER_C2_UP=CLOSE
-        io.set_relay("R04_C2", False)
-        ok = wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
-        if not ok:
-            print("[init] Не удалось поднять C2 до верха")
-            return
-
+        
         # ---------- Основной цикл: п.7..29 ----------
         while True:
             print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
