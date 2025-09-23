@@ -452,11 +452,10 @@ def main():
 
     try:
         print("=== Старт скрипта ===")
-
-
         # 3. G28 — хоуминг, ждём ok
         send_cmd(ser, "G28")
-        
+        send_cmd(ser, "WORK")
+
         # ---------- Основной цикл: п.7..29 ----------
         while True:
             print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
