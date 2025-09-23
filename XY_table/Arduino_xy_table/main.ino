@@ -13,27 +13,27 @@
 #define Y_MIN_PIN 14    // Y-MIN
 
 /* ===== CONFIG: mechanics & logic ===== */
-// TR8x8, 800 imp/rev  => 800/8 = 100 steps/mm
-float STEPS_PER_MM_X = 50.0f;
-float STEPS_PER_MM_Y = 50.0f;
+// TR8x8, 800 imp/rev  => 400/80 = 100 steps/mm
+float STEPS_PER_MM_X = 10.0f;
+float STEPS_PER_MM_Y = 20.0f;
 
 // мягкие стартовые параметры
 float MAX_FEED_MM_S  = 600.0f;   // мм/с
 float MAX_ACC_MM_S2  = 60000.0f;  // мм/с^2
 
 // Рабочие лимиты (мм): 0…MAX (ноль на MIN)
-float X_MIN_MM = 0.0f, X_MAX_MM = 60.0f;
-float Y_MIN_MM = 0.0f, Y_MAX_MM = 160.0f;
+float X_MIN_MM = 0.0f, X_MAX_MM = 300.0f;
+float Y_MIN_MM = 0.0f, Y_MAX_MM = 300.0f;
 
 // Homing scan & finesse
-float SCAN_RANGE_X_MM = 65.0f;
-float SCAN_RANGE_Y_MM = 165.0f;
+float SCAN_RANGE_X_MM = 300.0f;
+float SCAN_RANGE_Y_MM = 300.0f;
 float BACKOFF_MM      = 3.0f;
 float SLOW_MM_S       = 8.0f;
 
 // Direction inversion (перевернуть, если ось едет «не туда»)
 bool INVERT_X_DIR = true;
-bool INVERT_Y_DIR = true;
+bool INVERT_Y_DIR = false;
 
 // Endstop electrical logic: NC → active LOW (true),  NO → active HIGH (false)
 bool X_ENDSTOP_ACTIVE_LOW = false;  // NC по умолчанию
