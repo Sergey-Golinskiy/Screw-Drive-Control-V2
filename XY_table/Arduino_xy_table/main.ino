@@ -14,22 +14,27 @@
 
 /* ===== CONFIG: mechanics & logic ===== */
 // TR8x8, 800 imp/rev  => 400/80 = 100 steps/mm
-float STEPS_PER_MM_X = 10.0f;
+float STEPS_PER_MM_X = 11.111f;
 float STEPS_PER_MM_Y = 20.0f;
 
 // мягкие стартовые параметры
-float MAX_FEED_MM_S  = 600.0f;   // мм/с
-float MAX_ACC_MM_S2  = 60000.0f;  // мм/с^2
+float MAX_FEED_MM_S  = 300.0f;   // мм/с
+float MAX_ACC_MM_S2  = 40000.0f;  // мм/с^2
 
 // Рабочие лимиты (мм): 0…MAX (ноль на MIN)
-float X_MIN_MM = 0.0f, X_MAX_MM = 300.0f;
-float Y_MIN_MM = 0.0f, Y_MAX_MM = 300.0f;
+float X_MIN_MM = 0.0f, X_MAX_MM = 165.0f;
+float Y_MIN_MM = 0.0f, Y_MAX_MM = 350.0f;
 
 // Homing scan & finesse
-float SCAN_RANGE_X_MM = 300.0f;
-float SCAN_RANGE_Y_MM = 300.0f;
-float BACKOFF_MM      = 3.0f;
-float SLOW_MM_S       = 8.0f;
+float SCAN_RANGE_X_MM = 168.0f;
+float SCAN_RANGE_Y_MM = 352.0f;
+float BACKOFF_MM      = 5.0f;
+float SLOW_MM_S       = 2.0f;
+
+// ===== WORK position (мм) =====
+float WORK_X_MM = 85.0f;   // твоё рабочее X
+float WORK_Y_MM = 350.0f;    // твоё рабочее Y
+float WORK_F_MM_MIN = 90000; // подача по умолчанию для WORK
 
 // Direction inversion (перевернуть, если ось едет «не туда»)
 bool INVERT_X_DIR = true;
@@ -152,6 +157,16 @@ bool homeAll(){
 /* ===== utils ===== */
 void goZero(){ movePlan(0.0f, 0.0f, 1200.0f); while(runStep()){} }
 
+void goWork(float x_mm = NAN, float y_mm = NAN, float f_mm_min = NAN){
+  // если параметры не заданы — берём дефолты
+  float X = isnan(x_mm)     ? WORK_X_MM     : x_mm;
+  float Y = isnan(y_mm)     ? WORK_Y_MM     : y_mm;
+  float F = isnan(f_mm_min) ? WORK_F_MM_MIN : f_mm_min;
+
+  movePlan(X, Y, F);
+  while(runStep()){}
+}
+
 /* ===== reports ===== */
 void reportStatus(){
   float x = stepX.currentPosition()/STEPS_PER_MM_X;
@@ -176,6 +191,8 @@ void reportStatus(){
   ZERO        -> в (0,0)
   G X.. Y.. F..
   SET LIM X300 Y300
+  SET WORK  -> Установить рабочие координаты
+  WORK  ->  Выезд в рабочие координаты
   SET STEPS X100 Y100
   DX +10 F600 -> сдвиг X на +10 мм (диагностика, без софт-лимитов)
   DY -5 F600  -> сдвиг Y на -5 мм (диагностика, без софт-лимитов)
@@ -240,6 +257,45 @@ void handleLine(String s){
     STEPS_PER_MM_X=xs; STEPS_PER_MM_Y=ys; setKinematicsMax();
     Serial.println("ok"); return;
   }
+
+    if(s.startsWith("WORK")){
+    if(estop){ Serial.println("err ESTOP"); return; }
+
+    // Парсим необязательные X/Y/F
+    float x = NAN, y = NAN, f = NAN;
+    if(s.length() > 4){
+      int i=5; // пропустить "WORK "
+      while(i < s.length()){
+        int j = s.indexOf(' ', i); if(j < 0) j = s.length();
+        String t = s.substring(i, j);
+        if     (t.startsWith("X")) x = t.substring(1).toFloat();
+        else if(t.startsWith("Y")) y = t.substring(1).toFloat();
+        else if(t.startsWith("F")) f = t.substring(1).toFloat();
+        i = j + 1;
+      }
+    }
+
+    goWork(x, y, f);
+    Serial.println("ok");
+    return;
+  }
+
+    if(s.startsWith("SET WORK ")){
+    float x = WORK_X_MM, y = WORK_Y_MM, f = WORK_F_MM_MIN;
+    int i=9; // после "SET WORK "
+    while(i < s.length()){
+      int j = s.indexOf(' ', i); if(j < 0) j = s.length();
+      String t = s.substring(i, j);
+      if     (t.startsWith("X")) x = t.substring(1).toFloat();
+      else if(t.startsWith("Y")) y = t.substring(1).toFloat();
+      else if(t.startsWith("F")) f = t.substring(1).toFloat();
+      i = j + 1;
+    }
+    WORK_X_MM = x; WORK_Y_MM = y; WORK_F_MM_MIN = f;
+    Serial.println("ok");
+    return;
+  }
+
 
   // Диагностические сдвиги (без софт-лимитов; с проверкой концевиков)
   if(s.startsWith("DX ")){
