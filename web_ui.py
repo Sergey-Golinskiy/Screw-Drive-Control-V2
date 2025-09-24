@@ -39,9 +39,20 @@ ext_proc: subprocess.Popen | None = None
 TIMEOUT_SEC = 5.0  # базовый таймаут для ожидания датчиков (если понадобится)
 
 def load_devices_list():
-    data = yaml.safe_load(CFG_PATH.read_text(encoding="utf-8"))
-    devs = data.get("devices", [])
-    return [{"key": d["key"], "name": d["name"], "holes": d.get("holes", None)} for d in devs]
+    try:
+        text = CFG_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    data = yaml.safe_load(text) or {}
+    devs = data.get("devices", []) if isinstance(data, dict) else []
+    out = []
+    for d in devs:
+        try:
+            out.append({"key": d["key"], "name": d["name"], "holes": d.get("holes")})
+        except Exception:
+            continue
+    return out
+
 
 def get_selected_key():
     try:
@@ -310,9 +321,10 @@ INDEX_HTML = """<!doctype html>
 <script>
 async function getStatus(){
   const res = await fetch('/api/status');
-  if(!res.ok){throw new Error('status HTTP '+res.status)}
+  if(!res.ok) throw new Error('status HTTP '+res.status);
   return await res.json();
 }
+
 async function postRelay(name, action, ms){
   const payload = { name, action };
   if(action==='pulse' && ms) payload.ms = ms;
@@ -326,27 +338,70 @@ async function postRelay(name, action, ms){
     alert(data.message || 'Внешний скрипт запущен. Ручное управление недоступно.');
     return null;
   }
-  if(!res.ok){throw new Error('relay HTTP '+res.status)}
-  return await res.json();
-}
-async function postExt(action){
-  const url = action==='start' ? '/api/ext/start' : '/api/ext/stop';
-  const res = await fetch(url, {method:'POST'});
-  if(!res.ok){throw new Error('ext HTTP '+res.status)}
+  if(!res.ok) throw new Error('relay HTTP '+res.status);
   return await res.json();
 }
 
-function renderExternal(isRunning){
+async function postExt(action){
+  const url = action==='start' ? '/api/ext/start' : '/api/ext/stop';
+  const res = await fetch(url, {method:'POST'});
+  if(!res.ok) throw new Error('ext HTTP '+res.status);
+  return await res.json();
+}
+
+async function postTriggerStart(){
+  const res = await fetch('/api/trigger/start', {method:'POST'});
+  if(res.status===409){
+    const data = await res.json();
+    alert(data.message || 'Внешний скрипт не запущен');
+    return null;
+  }
+  if(!res.ok) throw new Error('trigger HTTP '+res.status);
+  return await res.json();
+}
+
+async function loadConfig(){
+  const res = await fetch('/api/config');
+  if(!res.ok) throw new Error('config HTTP '+res.status);
+  const data = await res.json();
+  const sel = document.getElementById('deviceSelect');
+  sel.innerHTML = '';
+  const ph = document.createElement('option');
+  ph.value = ''; ph.textContent = '— выберите устройство —';
+  sel.appendChild(ph);
+  (data.devices || []).forEach(d=>{
+    const o = document.createElement('option');
+    o.value = d.key; o.textContent = d.name;
+    sel.appendChild(o);
+  });
+  if(data.selected){
+    sel.value = data.selected;
+  }
+  // обновим состояние кнопок
+  renderExternal(false, !!data.selected);
+}
+
+async function postSelect(key){
+  const res = await fetch('/api/select', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({key})
+  });
+  if(!res.ok){ alert('Не удалось выбрать устройство'); }
+}
+
+function renderExternal(isRunning, hasDevice){
   const state = document.getElementById('extState');
   state.innerHTML = 'Статус: ' + (isRunning ? '<span class="pill blue">EXTERNAL RUNNING</span>' : '<span class="pill gray">STOPPED</span>');
-  // блокировать таблицу реле и сенсоров при внешнем процессе
   document.getElementById('relaysTbl').classList.toggle('disabled', isRunning);
   document.getElementById('btnCmdStart').disabled = !isRunning;
+  // запрещаем запуск без выбранного устройства
+  document.getElementById('btnExtStart').disabled = !hasDevice || isRunning;
 }
 
 function render(data){
   document.getElementById('statusTime').textContent = 'Обновлено: ' + data.time;
-  renderExternal(!!data.external_running);
+  renderExternal(!!data.external_running, !!data.selected_device);
 
   // sensors
   const sbody = document.querySelector('#sensorsTbl tbody');
@@ -360,63 +415,6 @@ function render(data){
     `;
     sbody.appendChild(tr);
   }
-
-async function loadConfig(){
-  const res = await fetch('/api/config');
-  const data = await res.json();
-  const sel = document.getElementById('deviceSelect');
-  sel.innerHTML = '';
-  const ph = document.createElement('option');
-  ph.value = ''; ph.textContent = '— выберите устройство —';
-  sel.appendChild(ph);
-  data.devices.forEach(d=>{
-    const o = document.createElement('option');
-    o.value = d.key; o.textContent = d.name;
-    sel.appendChild(o);
-  });
-  if(data.selected){
-    sel.value = data.selected;
-  }
-}
-
-async function postSelect(key){
-  const res = await fetch('/api/select', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({key})});
-  if(!res.ok){ alert('Не удалось выбрать устройство'); }
-}
-
-document.getElementById('deviceSelect').addEventListener('change', async (e)=>{
-  const key = e.target.value || null;
-  if(key){ await postSelect(key); }
-  render(await getStatus()); // перерисовать кнопки
-});
-
-function renderExternal(isRunning, hasDevice){
-  const state = document.getElementById('extState');
-  state.innerHTML = 'Статус: ' + (isRunning ? '<span class="pill blue">EXTERNAL RUNNING</span>' : '<span class="pill gray">STOPPED</span>');
-  document.getElementById('relaysTbl').classList.toggle('disabled', isRunning);
-  document.getElementById('btnCmdStart').disabled = !isRunning;
-  // Запретить запуск без выбранного девайса
-  document.getElementById('btnExtStart').disabled = !hasDevice || isRunning;
-}
-
-function render(data){
-  document.getElementById('statusTime').textContent = 'Обновлено: ' + data.time;
-  renderExternal(data.external_running, !!data.selected_device);
-  // дальше как у вас (отрисовка таблиц)
-}
-
-document.getElementById('btnExtStart').addEventListener('click', async ()=>{
-  const sel = document.getElementById('deviceSelect').value;
-  if(!sel){ alert('Выберите устройство из списка'); return; }
-  await postExt('start');
-  render(await getStatus());
-});
-
-window.addEventListener('load', async ()=>{
-  await loadConfig();
-  render(await getStatus());
-});
-
 
   // relays
   const rbody = document.querySelector('#relaysTbl tbody');
@@ -440,11 +438,9 @@ window.addEventListener('load', async ()=>{
     rbody.appendChild(tr);
   }
 
-  // Если внешний скрипт работает — задизейблить input-кнопки на уровне DOM
+  // disable inputs if external running
   const disabled = !!data.external_running;
-  document.querySelectorAll('#relaysTbl button, #relaysTbl input').forEach(el=>{
-    el.disabled = disabled;
-  });
+  document.querySelectorAll('#relaysTbl button, #relaysTbl input').forEach(el=>{ el.disabled = disabled; });
 }
 
 async function refresh(){
@@ -460,32 +456,35 @@ async function cmd(name, action, ms){
   if(data) render(data);
 }
 
-async function postTriggerStart(){
-  const res = await fetch('/api/trigger/start', {method:'POST'});
-  if(res.status===409){
-    const data = await res.json();
-    alert(data.message || 'Внешний скрипт не запущен');
-    return null;
-  }
-  if(!res.ok){ throw new Error('trigger HTTP '+res.status) }
-  return await res.json();
-}
+document.getElementById('deviceSelect').addEventListener('change', async (e)=>{
+  const key = e.target.value || null;
+  if(key){ await postSelect(key); }
+  // сразу перерисуем статус — чтобы активировать кнопку Start
+  render(await getStatus());
+});
 
 document.getElementById('btnExtStart').addEventListener('click', async ()=>{
+  const sel = document.getElementById('deviceSelect').value;
+  if(!sel){ alert('Выберите устройство из списка'); return; }
   try{ render(await postExt('start')); }catch(e){ alert('Ошибка запуска: '+e.message); }
 });
 document.getElementById('btnExtStop').addEventListener('click', async ()=>{
   try{ render(await postExt('stop')); }catch(e){ alert('Ошибка остановки: '+e.message); }
 });
 document.getElementById('btnCmdStart').addEventListener('click', async ()=>{
-  try{ 
+  try{
     const data = await postTriggerStart();
     if(data) render(data);
   }catch(e){ alert('Ошибка команды START: '+e.message); }
 });
-refresh();
-setInterval(refresh, 1000);
+
+window.addEventListener('load', async ()=>{
+  await loadConfig();          // ← заполняем выпадающий список
+  render(await getStatus());   // ← рисуем UI
+  setInterval(refresh, 1000);
+});
 </script>
+
 </body>
 </html>
 """

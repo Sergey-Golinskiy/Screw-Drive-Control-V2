@@ -361,23 +361,24 @@ class StartTrigger:
 
 
 
-def wait_pedal_or_command(io: IOController, trg: "StartTrigger") -> bool:
-   
+def wait_pedal_or_command(io: IOController, trg: "StartTrigger" | None = None) -> bool:
+    # первая фаза — дождаться OPEN (если педаль держат)
     while True:
-        if not io.sensor_state("PED_START"): 
+        if not io.sensor_state("PED_START"):
             break
-        if trg.event.is_set():
+        if trg and trg.event.is_set():
+            trg.trigger_once()
+            return True
+        time.sleep(0.01)
+    # вторая фаза — дождаться CLOSE
+    while True:
+        if io.sensor_state("PED_START"):
+            return True
+        if trg and trg.event.is_set():
             trg.trigger_once()
             return True
         time.sleep(0.01)
 
-    while True:
-        if io.sensor_state("PED_START"): 
-            return True
-        if trg.event.is_set():
-            trg.trigger_once()
-            return True
-        time.sleep(0.01)
 
 
 def wait_close_pulse(io: IOController, sensor_name: str, window_ms: int) -> bool:
@@ -389,12 +390,11 @@ def wait_close_pulse(io: IOController, sensor_name: str, window_ms: int) -> bool
         time.sleep(0.005)
     return False
 
-def feed_until_detect(io: IOController):
-    """Подача винта (п.9/16/23) с повтором, пока не придёт импульс IND_SCRW (п.10/17/24)."""
+def feed_until_detect(io: IOController) -> bool:
     while True:
         io.pulse("R01_PIT", ms=FEED_PULSE_MS)
         if wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):
-            return
+            return True
         print("[feed] Нет импульса IND_SCRW, повторяю подачу...")
 
 def torque_sequence(io: IOController) -> bool:
