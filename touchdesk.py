@@ -159,6 +159,10 @@ class ApiClient:
     def select(self, key: str) -> dict:
         """POST /api/select {"key": key} -> {"ok":true, ...}"""
         return req_post("select", {"key": key})
+    
+    def events(self) -> dict:
+        """GET /api/events -> {"events":[{ts, level, code, msg, ...}, ...]}"""
+        return req_get("events")
 
 
 # ================== Serial ==================
@@ -398,6 +402,20 @@ class ServiceTab(QWidget):
         #self.edSend.installEventFilter(self)
         right.addWidget(self.serialCard, 1)
 
+        # --- Новая карточка: События ---
+        self.eventsCard = make_card("Події")
+        ev_layout = self.eventsCard.layout()
+
+        self.eventsText = QTextEdit()
+        self.eventsText.setObjectName("eventsText")
+        self.eventsText.setReadOnly(True)
+        self.eventsText.setMinimumHeight(220)
+        ev_layout.addWidget(self.eventsText)
+
+        right.addWidget(self.eventsCard, 0)
+        # таймерное состояние для опроса событий
+        self._events_refresh_ts = 0.0
+
         root.addLayout(left, 2)
         root.addLayout(right, 1)
 
@@ -505,6 +523,32 @@ class ServiceTab(QWidget):
             self._relay_widgets.clear()
             for i, name in enumerate(relay_names):
                 self._relay_cell(i, name)
+
+         # --- События (ленивый опрос раз в ~1.5с) ---
+        now = time.monotonic()
+        if (now - getattr(self, "_events_refresh_ts", 0.0)) >= 1.5:
+            self._events_refresh_ts = now
+            try:
+                data = self.api.events() or {}
+                items = data.get("events", [])[-100:]  # последние 100
+                # соберём компактные строки: [ts] LEVEL code: msg
+                lines = []
+                for e in items:
+                    ts  = e.get("ts", "")
+                    lvl = (e.get("level", "") or "").upper()
+                    code = e.get("code", "")
+                    msg = e.get("msg", "")
+                    if code:
+                        lines.append(f"[{ts}] {lvl} {code}: {msg}")
+                    else:
+                        lines.append(f"[{ts}] {lvl}: {msg}")
+                self.eventsText.setPlainText("\n".join(lines))
+                # автопрокрутка вниз
+                sb = self.eventsText.verticalScrollBar()
+                sb.setValue(sb.maximum())
+            except Exception as ex:
+                # не шумим в UI, просто мягко пропускаем тик
+                pass       
 
         external = bool(st.get("external_running"))
         for name, widgets in self._relay_widgets.items():
@@ -946,6 +990,8 @@ APP_QSS = f"""
 #rootFrame[state="ok"]    {{ border: {BORDER_W}px solid #1ac06b; }}
 #rootFrame[state="idle"]  {{ border: {BORDER_W}px solid #f0b400; }}
 #rootFrame[state="alarm"] {{ border: {BORDER_W}px solid #e5484d; }}
+
+QTextEdit#eventsText {{ font-size: 14px; }}
 
 #devButton {{
     font-size: 20px; 
