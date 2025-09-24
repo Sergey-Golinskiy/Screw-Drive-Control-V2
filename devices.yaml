@@ -1,9 +1,21 @@
+# devices.yaml
 devices:
   - key: "plate_3holes"
     name: "Пластина 3 отверстия"
     holes: 3
     program:
-      - { type: "free", x: 35, y: 20 }
-      - { type: "work", x: 35, y: 153, task: 0 }
-      - { type: "work", x: 15, y: 123, task: 0 }
-      - { type: "work", x: 54, y: 123, task: 1 }
+      - { type: "free",  x: 35, y: 20,  f: 30000 }   # свободный ход (объезд/подвод)
+      - { type: "work",  x: 35, y: 153, f: 25000, task: 0 }  # закручивание №1
+      - { type: "free",  x: 28, y: 140 }
+      - { type: "work",  x: 15, y: 123, f: 25000, task: 0 }  # закручивание №2
+      - { type: "work",  x: 54, y: 123, f: 25000, task: 0 }  # закручивание №3
+      - { type: "free",  x: 35, y: 20 }
+
+  - key: "bracket_2holes"
+    name: "Кронштейн 2 отверстия"
+    holes: 2
+    program:
+      - { type: "free", x: 10, y: 10 }
+      - { type: "work", x: 42, y: 95,  task: 0 }
+      - { type: "work", x: 12, y: 75,  task: 0 }
+      - { type: "free", x: 10, y: 10 }
