@@ -430,7 +430,9 @@ def wait_close_pulse(io: IOController, sensor_name: str, window_ms: int) -> bool
     return False
 
 def feed_until_detect(io: IOController) -> bool:
+    attempt = 0
     while True:
+        attempt += 1
         io.pulse("R01_PIT", ms=FEED_PULSE_MS)
         ev_info("FEED_PULSE", "Импульс подачи", attempt=attempt, ms=FEED_PULSE_MS)
         if wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):
@@ -443,47 +445,40 @@ def feed_until_detect(io: IOController) -> bool:
             ev_alarm("FEED_FAIL", "IND_SCRW не сработал за лимит попыток", attempts=attempt)
             return False
 
+
 def torque_sequence(io: IOController) -> bool:
     ev_info("TORQUE_BEGIN", "Начало закручивания по моменту")
-    """
-    Включить моментный режим и опустить отвёртку до DO2_OK=CLOSE,
-    затем поднять (ждать GER_C2_UP) и дать free-run импульс.
-    Возвращает True при успехе, False при таймауте (в этом случае всё выключено и инструмент поднят).
-    """
-    io.set_relay("R06_DI1_POT", True)           # п.11 / 18 / 25
-    io.set_relay("R04_C2", True)                # п.12 / 19 / 26
-    ok = wait_sensor(io, "DO2_OK", True, TIMEOUT_SEC)
-    ev_info("TORQUE_OK", "Момент достигнут, инструмент поднят", stable_ms=ok_stable_ms)
-    if not ok:
-        print("[torque] TIMEOUT по DO2_OK — выключаю и поднимаю C2")
-        io.set_relay("R04_C2", False)
-        io.set_relay("R06_DI1_POT", False)
-        wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
-        return False
-    # проверка на нижний конечник (аварийный случай)
-    if io.sensor_state("GER_C2_DOWN"):
-        ev_alarm("C2_DOWN", "Достигнут нижний конечник цилиндра")
-        io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
-        wait_sensor(io, "GER_C2_UP", True, 2.0)
-        return False
-    
-    if (time.time()-t0) > TIMEOUT_SEC:
-        ev_err("TORQUE_TIMEOUT", f"Момент не достигнут за {TIMEOUT_SEC}s")
-        io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
-        wait_sensor(io, "GER_C2_UP", True, 2.0)
-        return False
+    io.set_relay("R06_DI1_POT", True)
+    io.set_relay("R04_C2", True)
+    t0 = time.time()
+    ok_stable_ms = 20
+    t_ok = None
+    while True:
+        if io.sensor_state("GER_C2_DOWN"):
+            ev_alarm("C2_DOWN", "Достигнут нижний конечник цилиндра")
+            io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
+            wait_sensor(io, "GER_C2_UP", True, 2.0)
+            return False
+        if io.sensor_state("DO2_OK"):
+            if t_ok is None: t_ok = time.time()
+            elif (time.time()-t_ok)*1000 >= ok_stable_ms:
+                break
+        else:
+            t_ok = None
+        if (time.time()-t0) > TIMEOUT_SEC:
+            ev_err("TORQUE_TIMEOUT", f"Момент не достигнут за {TIMEOUT_SEC}s")
+            io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
+            wait_sensor(io, "GER_C2_UP", True, 2.0)
+            return False
+        time.sleep(0.005)
 
-
-    # момент достигнут — поднять инструмент
-    io.set_relay("R04_C2", False)               # п.13 / 20 / 27 (часть 1)
-    io.set_relay("R06_DI1_POT", False)          # п.13 / 20 / 27 (часть 2)
-    ok_up = wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
-    if not ok_up:
-        return False
-
-    # free-run импульс 100 мс (п.14 / 21 / 28)
+    io.set_relay("R04_C2", False)
+    io.set_relay("R06_DI1_POT", False)
+    wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
     io.pulse("R05_DI4_FREE", ms=FREE_BURST_MS)
+    ev_info("TORQUE_OK", "Момент достигнут, инструмент поднят", stable_ms=ok_stable_ms)
     return True
+
 
 def torque_fallback(io: IOController):
     """
@@ -596,15 +591,16 @@ def main():
     print(f"[{ts()}] Открываю сериал порт {SERIAL_PORT} @ {SERIAL_BAUD}")
     ser = open_serial()
     print(f"[{ts()}] Serial открыт")
-    if not wait_ready(ser, timeout=5.0):
-        ev_err("READY_TIMEOUT", "Не дождались 'ok READY' от контроллера")
+
+    # СНАЧАЛА почистим входной буфер (если там был мусор/хвост от ресета)
     try:
         ser.reset_input_buffer()
     except Exception:
         pass
 
+    # ЖДЁМ БАННЕР ТОЛЬКО ОДИН РАЗ
     if not wait_ready(ser, timeout=5.0):
-        print("[err] контроллер перемещений не готов (нет 'ok READY')")
+        ev_err("READY_TIMEOUT", "Не дождались 'ok READY' от контроллера")
         trg.stop()
         io.cleanup()
         try: ser.close()
