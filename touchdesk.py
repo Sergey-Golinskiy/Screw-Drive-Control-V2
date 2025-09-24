@@ -16,7 +16,7 @@ import requests
 from functools import partial
 
 from PyQt5.QtCore import Qt, QTimer, QThread, QEvent, pyqtSignal as Signal 
-#QCoreApplication.setAttribute(Qt.AA_DisableHighDpiScaling, True)
+QCoreApplication.setAttribute(Qt.AA_DisableHighDpiScaling, True)
 from PyQt5.QtGui import QFont # type: ignore
 from PyQt5.QtGui import QPixmap # type: ignore
 from PyQt5.QtWidgets import ( # type: ignore
@@ -651,13 +651,7 @@ class MainWindow(QMainWindow):
         any_alarm = any(re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and v for k, v in sensors.items())
 
         if running:
-            try:
-                st = self.api.status()
-            except Exception:
-                self.set_border("alarm")
-                return
-
-            # обновление вкладок
+                       # обновление вкладок
             self.tabWork.render(st)
             self.tabStart.render(st)
             self.tabService.render(st)
