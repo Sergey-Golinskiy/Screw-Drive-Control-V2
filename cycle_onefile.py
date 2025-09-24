@@ -245,10 +245,6 @@ def wait_ready(ser: serial.Serial, timeout: float = 5.0) -> bool:
     return False
 
 
-program = dev["program"]
-print(f"[info] Устройство: {dev['name']} (holes={dev.get('holes')})")
-
-
 def send_cmd(ser: serial.Serial, line: str):
     """Отправить команду и дождаться ok/err; печатаем ответы."""
     payload = (line.strip() + "\n").encode()
