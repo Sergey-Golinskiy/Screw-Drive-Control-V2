@@ -84,25 +84,6 @@ SERIAL_BAUD = 115200
 SERIAL_TIMEOUT = 0.5
 SERIAL_WTIMEOUT = 0.5
 
-def load_devices_config(path: Path = DEFAULT_CFG) -> dict:
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not data or "devices" not in data:
-        raise ValueError("devices.yaml: не найден список devices")
-    # простая валидация
-    by_key = {}
-    for d in data["devices"]:
-        if "key" not in d or "name" not in d or "program" not in d:
-            raise ValueError(f"devices.yaml: device не полон: {d}")
-        by_key[d["key"]] = d
-    return by_key
-
-def select_task(io: "IOController", task: int, ms: int = TASK_PULSE_MS):
-    if task == 0:
-        io.pulse("R07_DI5_TSK0", ms=ms)
-    elif task == 1:
-        io.pulse("R08_DI6_TSK1", ms=ms)
-    else:
-        print(f"[task] unknown task={task}, пропускаю")
 
 def set_cycle_busy(on: bool):
     try:
@@ -456,29 +437,83 @@ def torque_fallback(io: IOController):
     io.set_relay("R06_DI1_POT", False)
     wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
 
-# =====================[ ГЛАВНАЯ ЛОГИКА ]=======================
-def main():
-    io = IOController()
-    trg = StartTrigger(TRIGGER_HOST, TRIGGER_PORT)
-    trg.start()
-    # --- Открыть serial и держать открытым до завершения процесса ---
-    print(f"[{ts()}] Открываю сериал порт {SERIAL_PORT} @ {SERIAL_BAUD}")
-    ser = open_serial()
-    print(f"[{ts()}] Serial открыт")
+def load_devices_config(path: Path = DEFAULT_CFG) -> dict:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not data or "devices" not in data:
+        raise ValueError("devices.yaml: не найден список devices")
+    # простая валидация
+    by_key = {}
+    for d in data["devices"]:
+        if "key" not in d or "name" not in d or "program" not in d:
+            raise ValueError(f"devices.yaml: device не полон: {d}")
+        by_key[d["key"]] = d
+    return by_key
 
-    # --- 2.1 Ждём 'ok READY' от Arduino ---
-    # на всякий случай очистим входной буфер от мусора при старте
+def select_task(io: "IOController", task: int, ms: int = TASK_PULSE_MS):
+    if task == 0:
+        io.pulse("R07_DI5_TSK0", ms=ms)
+    elif task == 1:
+        io.pulse("R08_DI6_TSK1", ms=ms)
+    else:
+        print(f"[task] unknown task={task}, пропускаю")
+
+def run_cycle(selected_key: str):
+    # 1) выбрать устройство и программу
+    devices = load_devices_config()
+    dev = devices.get(selected_key)
+    if not dev:
+        print(f"[err] device '{selected_key}' не найден в devices.yaml")
+        return 1
+
+    program = dev["program"]
+    print(f"[info] Устройство: {dev['name']} (holes={dev.get('holes')})")
+
+    # 2) обычная твоя инициализация: GPIO, serial, ready, homing и т.д.
+    io = IOController()
+    ser = open_serial()
+    if not wait_ready(ser):
+        print("[err] контроллер перемещений не готов")
+        return 2
+    send_cmd(ser, "G28")  # хоуминг, как у тебя
+
+    # 3) ожидание старта (педаль/команда START)
+    if not wait_pedal_or_command(io):   # твоя функция
+        return 3
+
+    # 4) основной маршрут по шагам
+    for step in program:
+        t = step.get("type", "free")
+        x = step["x"]; y = step["y"]
+        f = step.get("f")
+
+        move_xy(ser, x, y, f)  # твоя функция
+
+        if t == "work":
+            # (опционально) выбрать таску
+            if "task" in step:
+                select_task(io, int(step["task"]))
+
+            # подача винта до импульса IND_SCRW (твоя функция)
+            feed_until_detect(io)
+
+            # закручивание по моменту (твоя функция)
+            if not torque_sequence(io):
+                print("[err] момент не достигнут — аварийный выход")
+                move_xy(ser, 35, 20)  # безопасная позиция
+                break
+        # 'free' — просто проезд
+
+    # 5) финализация/очистка если нужно
     try:
-        ser.reset_input_buffer()
+        io.cleanup()
     except Exception:
         pass
+    return 0
 
-    if not wait_ready(ser, timeout=5.0):
-        # если нужно — можно прервать работу:
-        # return
-        # либо просто продолжить, но по ТЗ корректнее остановиться
-        return
-    
+
+# =====================[ ГЛАВНАЯ ЛОГИКА ]=======================
+def main():
+    # 0) выбрать устройство из конфигурации (требуем аргумент)
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", required=True, help="device key from devices.yaml")
     args = parser.parse_args()
@@ -487,91 +522,132 @@ def main():
     dev = devices.get(args.device)
     if not dev:
         print(f"[err] device '{args.device}' не найден в devices.yaml")
-        return
-
+        raise SystemExit(1)
     program = dev["program"]
     print(f"[info] Устройство: {dev['name']} (holes={dev.get('holes')})")
 
+    # 1) инициализация GPIO и триггера
+    io = IOController()
+    trg = StartTrigger(TRIGGER_HOST, TRIGGER_PORT)
+    trg.start()
 
+    # 2) открыть serial и проверить готовность контроллера
+    print(f"[{ts()}] Открываю сериал порт {SERIAL_PORT} @ {SERIAL_BAUD}")
+    ser = open_serial()
+    print(f"[{ts()}] Serial открыт")
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+
+    if not wait_ready(ser, timeout=5.0):
+        print("[err] контроллер перемещений не готов (нет 'ok READY')")
+        trg.stop()
+        io.cleanup()
+        try: ser.close()
+        except Exception: pass
+        raise SystemExit(2)
+
+    # 3) базовая инициализация координатной системы
+    print("=== Старт скрипта ===")
+    send_cmd(ser, "G28")   # хоуминг
+    send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
+
+    # локальный хелпер перемещения (если у тебя есть глобальный move_xy — можешь использовать его)
+    def _move_xy(ser_, x, y, f=None):
+        feed = f or MOVE_F
+        send_cmd(ser_, f"G X{x} Y{y} F{feed}")
 
     try:
-        print("=== Старт скрипта ===")
-        # 3. G28 — хоуминг, ждём ok
-        send_cmd(ser, "G28")
-        send_cmd(ser, "WORK")
-
-        # ---------- Основной цикл: п.7..29 ----------
         while True:
-
-            if not dev:
-                print("[err] device not selected (не найден) — выходим")
-                return
-
-
-            print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
-            set_cycle_busy(False)  # <-- цикл свободен, ждём триггера
-            if not wait_pedal_or_command(io, trg):
-                break
-
-            # 7. Ждём нажатия педальки
+            # ——— ожидание запуска ———
+            set_cycle_busy(False)
             print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
             if not wait_pedal_or_command(io, trg):
+                print("[cycle] Старт не получен — выхожу")
                 break
-
 
             set_cycle_busy(True)
 
-            def move_xy(ser, x, y, f=None):
-                feed = f or MOVE_F
-                send_cmd(ser, f"G X{x} Y{y} F{feed}")
-
-# ...
+            # ——— исполнение маршрута из devices.yaml ———
+            abort = False
             for step in program:
                 t = step.get("type", "free")
-                x = step["x"]; y = step["y"]
-                f = step.get("f")
+                x = step["x"]; y = step["y"]; f = step.get("f")
 
-                # safety-чек шторы перед каждым движением (по желанию)
-                # if io.sensor_state("AREA_SENSOR"): ...  (см. предыдущие рекомендации)
+                # (опционально) safety: шторка
+                if io.sensor_state("AREA_SENSOR"):
+                    print("[safety] AREA_SENSOR=CLOSE — зона занята! Прерываю цикл.")
+                    io.set_relay("R04_C2", False)      # поднять цилиндр
+                    io.set_relay("R06_DI1_POT", False) # снять момент
+                    # ждать вверх по возможности, но без паники, затем вернуть систему WORK
+                    try: wait_sensor(io, "GER_C2_UP", True, 2.0)
+                    except Exception: pass
+                    send_cmd(ser, "WORK")
+                    abort = True
+                    break
 
-                move_xy(ser, x, y, f)
+                # перемещение
+                _move_xy(ser, x, y, f)
 
                 if t == "work":
-                    # 1) по желанию — выбрать таску
+                    # (необ.) импульс выбора таски
                     if "task" in step:
-                        select_task(io, int(step["task"]))
+                        select_task(io, int(step["task"]))  # 0 -> R07, 1 -> R08
 
-                    # 2) подача винта до импульса IND_SCRW
-                    feed_until_detect(io)  # R01_PIT / IND_SCRW  (у вас уже реализовано) :contentReference[oaicite:3]{index=3}
-
-                    # 3) закрутить по моменту (включить R06/R04 → DO2_OK → поднять → free-run)  (у вас уже реализовано)
-                    if not torque_sequence(io):                # :contentReference[oaicite:4]{index=4}
-                        print("[err] момент не достигнут — аварийный выход")
-                        # возврат в безопасную точку по желанию
+                    # подача винта до импульса IND_SCRW
+                    if not feed_until_detect(io):
+                        print("[feed] Нет импульса IND_SCRW в окне — аварийный выход")
                         send_cmd(ser, "WORK")
+                        abort = True
                         break
-                else:
-                    # free — просто проезд, ничего не делаем
-                    pass
-                time.sleep(0.1)  # небольшая пауза между шагами
 
+                    # закрутка по моменту: R06/R04 → DO2_OK → вверх → free-run
+                    if not torque_sequence(io):
+                        print("[torque] Момент не достигнут — аварийный выход")
+                        send_cmd(ser, "WORK")
+                        abort = True
+                        break
 
-            send_cmd(ser, "WORK")
+                # небольшая тех.пауза (сгладить дребезг статусов)
+                time.sleep(0.05)
 
+            # ——— окончание серии ———
+            send_cmd(ser, "WORK")      # привести механику в безопасный рабочий пресет
             set_cycle_busy(False)
 
-            # 29. Повторяем с пункта 7 — просто продолжаем while True
+            if abort:
+                print("[cycle] Серия прервана — ожидаю новый старт")
+            else:
+                print("[cycle] Серия шагов завершена — ожидаю новый старт")
+
+            # цикл продолжается: снова ждём педаль/команду
+            # если нужен одноразовый запуск — раскомментируй:
+            # break
 
     except KeyboardInterrupt:
-        pass
+        print("[cycle] Прервано пользователем (Ctrl+C)")
     finally:
         trg.stop()
-        io.cleanup()
+        try:
+            # безопасно снять выходы
+            io.set_relay("R04_C2", False)
+            io.set_relay("R06_DI1_POT", False)
+        except Exception:
+            pass
+        try:
+            set_cycle_busy(False)
+        except Exception:
+            pass
+        try:
+            io.cleanup()
+        except Exception:
+            pass
         try:
             ser.close()
         except Exception:
             pass
-        print("=== Остановлено. GPIO освобождены ===")
+        print("=== Остановлено. GPIO освобождены, serial закрыт ===")
 
 if __name__ == "__main__":
     main()
