@@ -3,14 +3,20 @@
 import os
 # если нет переменных DISPLAY/WAYLAND_DISPLAY — поднимем eglfs
 if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+    # работаем через EGLFS — жёстко фиксируем масштаб
     os.environ.setdefault("QT_QPA_PLATFORM", "eglfs")
+    os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "0")
+    os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "0")
+    os.environ.setdefault("QT_SCALE_FACTOR", "1")
+    os.environ.setdefault("QT_SCALE_FACTOR_ROUNDING_POLICY", "PassThrough")
 import socket
 import os, sys, socket, re, time
 import requests
 
 from functools import partial
 
-from PyQt5.QtCore import Qt, QTimer, QThread, QEvent, pyqtSignal as Signal
+from PyQt5.QtCore import QCoreApplication, Qt, QTimer, QThread, QEvent, pyqtSignal as Signal
+QCoreApplication.setAttribute(Qt.AA_DisableHighDpiScaling, True)
 from PyQt5.QtGui import QFont # type: ignore
 from PyQt5.QtGui import QPixmap # type: ignore
 from PyQt5.QtWidgets import ( # type: ignore
@@ -381,7 +387,7 @@ class ServiceTab(QWidget):
 
         #self.vkeyboard = VirtualKeyboard(self)
         #self.vkeyboard.on_enter = self.send_serial
-        self.edSend.installEventFilter(self)
+        #self.edSend.installEventFilter(self)
         right.addWidget(self.serialCard, 1)
 
         root.addLayout(left, 2)
@@ -588,7 +594,6 @@ class MainWindow(QMainWindow):
 
         self.tabs = tabs
         self.tabs.currentChanged.connect(self.on_tab_changed)
-        self.tabs.currentChanged.connect(self.on_tab_changed)
         self.on_tab_changed(self.tabs.currentIndex())
         self._was_running = False
 
@@ -617,6 +622,11 @@ class MainWindow(QMainWindow):
 
         # Полноэкранный режим под тач
         self.showFullScreen()
+        screen = QApplication.primaryScreen()
+        if screen:
+            size = screen.size()            # физическое разрешение фреймбуфера
+            # фиксируем размер, чтобы layout не «догонял» что-то во время таб-свитча
+            w.setFixedSize(size)
 
     # Позиционирование рамки/бордера
     def set_border(self, state: str):
@@ -625,12 +635,6 @@ class MainWindow(QMainWindow):
 
     # Перерисовка/логика статуса
     def refresh(self):
-        try:
-            st = self.api.status()
-        except Exception:
-            self.set_border("alarm")
-            return
-
         # обновление вкладок
         self.tabWork.render(st)
         self.tabStart.render(st)
@@ -811,7 +815,7 @@ def main():
         print(f"[WARN] GPIO init failed: {_e}")
     app.setOverrideCursor(QCursor(Qt.BlankCursor))  # спрятать курсор
     app.setStyleSheet(APP_QSS)
-    f = QFont(); f.setPointSize(12); app.setFont(f)
+    f = QFont(); f.setPixelSize(16); app.setFont(f)
     w = MainWindow(); w.show()
     # Корректная очистка GPIO при выходе
     app.aboutToQuit.connect(gpio_cleanup)
