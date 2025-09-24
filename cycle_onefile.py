@@ -8,7 +8,9 @@ import threading
 from datetime import datetime
 import os
 from pathlib import Path
-
+import argparse, json
+from pathlib import Path
+import yaml
 
 from typing import Optional
 import RPi.GPIO as GPIO
@@ -29,6 +31,10 @@ except Exception:
 RELAY_ACTIVE_LOW = True  # твоя 8-релейка, как правило, LOW-trigger
 BUSY_FLAG = "/tmp/screw_cycle_busy"
 
+DEFAULT_CFG = Path(__file__).with_name("devices.yaml")
+TASK_PULSE_MS = 700  # п.7: импульс выбора задачи
+
+# Файл конфигурации устройств (датчиков/реле)
 # Реле (BCM): подгони под свою распиновку при необходимости
 RELAY_PINS = {
     "R01_PIT":     5,   # Питатель винтов (импульс)
@@ -77,6 +83,26 @@ SERIAL_PORT = "/dev/ttyACM0"
 SERIAL_BAUD = 115200
 SERIAL_TIMEOUT = 0.5
 SERIAL_WTIMEOUT = 0.5
+
+def load_devices_config(path: Path = DEFAULT_CFG) -> dict:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not data or "devices" not in data:
+        raise ValueError("devices.yaml: не найден список devices")
+    # простая валидация
+    by_key = {}
+    for d in data["devices"]:
+        if "key" not in d or "name" not in d or "program" not in d:
+            raise ValueError(f"devices.yaml: device не полон: {d}")
+        by_key[d["key"]] = d
+    return by_key
+
+def select_task(io: "IOController", task: int, ms: int = TASK_PULSE_MS):
+    if task == 0:
+        io.pulse("R07_DI5_TSK0", ms=ms)
+    elif task == 1:
+        io.pulse("R08_DI6_TSK1", ms=ms)
+    else:
+        print(f"[task] unknown task={task}, пропускаю")
 
 def set_cycle_busy(on: bool):
     try:
@@ -236,6 +262,10 @@ def wait_ready(ser: serial.Serial, timeout: float = 5.0) -> bool:
             return True
     print("[SER] TIMEOUT: не получили 'ok READY'")
     return False
+
+
+program = dev["program"]
+print(f"[info] Устройство: {dev['name']} (holes={dev.get('holes')})")
 
 
 def send_cmd(ser: serial.Serial, line: str):
@@ -448,6 +478,20 @@ def main():
         # return
         # либо просто продолжить, но по ТЗ корректнее остановиться
         return
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--device", required=True, help="device key from devices.yaml")
+    args = parser.parse_args()
+
+    devices = load_devices_config()
+    dev = devices.get(args.device)
+    if not dev:
+        print(f"[err] device '{args.device}' не найден в devices.yaml")
+        return
+
+    program = dev["program"]
+    print(f"[info] Устройство: {dev['name']} (holes={dev.get('holes')})")
+
 
 
     try:
@@ -458,6 +502,12 @@ def main():
 
         # ---------- Основной цикл: п.7..29 ----------
         while True:
+
+            if not dev:
+                print("[err] device not selected (не найден) — выходим")
+                return
+
+
             print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
             set_cycle_busy(False)  # <-- цикл свободен, ждём триггера
             if not wait_pedal_or_command(io, trg):
@@ -471,37 +521,39 @@ def main():
 
             set_cycle_busy(True)
 
-            # --- Точка 1: X35 Y155 (пп.8–14) ---
-            x, y = POINTS[0]
-            move_xy(ser, x, y, MOVE_F)               # 8
-            feed_until_detect(io)                     # 9 + 10
-            if not torque_sequence(io):              # 11–14 (с free-run)
-                # При таймауте по моменту возвращаемся к ожиданию педали
-                send_cmd(ser, "WORK")
-                return
+            def move_xy(ser, x, y, f=None):
+                feed = f or MOVE_F
+                send_cmd(ser, f"G X{x} Y{y} F{feed}")
 
-            # --- Точка 2: X15 Y123 (пп.15–21) ---
-            x, y = POINTS[1]
-            move_xy(ser, x, y, MOVE_F)               # 15
-            # Подача и контроль IND_SCRW
-            io.pulse("R01_PIT", ms=FEED_PULSE_MS)    # 16
-            if not wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):  # 17
-                # если нет импульса — повторяем подачу (логика п.10 говорит «делаем ещё раз пункт 9»)
-                feed_until_detect(io)
-            if not torque_sequence(io):              # 18–21
-                send_cmd(ser, "WORK")
-                return
+# ...
+            for step in program:
+                t = step.get("type", "free")
+                x = step["x"]; y = step["y"]
+                f = step.get("f")
 
-            # --- Точка 3: X54 Y123 (пп.22–28) ---
-            x, y = POINTS[2]
-            move_xy(ser, x, y, MOVE_F)               # 22
-            # Подача и контроль IND_SCRW
-            io.pulse("R01_PIT", ms=FEED_PULSE_MS)    # 23
-            if not wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):  # 24
-                feed_until_detect(io)                # повторяем п.9 до успеха
-            if not torque_sequence(io):              # 25–28
-                send_cmd(ser, "WORK")
-                return
+                # safety-чек шторы перед каждым движением (по желанию)
+                # if io.sensor_state("AREA_SENSOR"): ...  (см. предыдущие рекомендации)
+
+                move_xy(ser, x, y, f)
+
+                if t == "work":
+                    # 1) по желанию — выбрать таску
+                    if "task" in step:
+                        select_task(io, int(step["task"]))
+
+                    # 2) подача винта до импульса IND_SCRW
+                    feed_until_detect(io)  # R01_PIT / IND_SCRW  (у вас уже реализовано) :contentReference[oaicite:3]{index=3}
+
+                    # 3) закрутить по моменту (включить R06/R04 → DO2_OK → поднять → free-run)  (у вас уже реализовано)
+                    if not torque_sequence(io):                # :contentReference[oaicite:4]{index=4}
+                        print("[err] момент не достигнут — аварийный выход")
+                        # возврат в безопасную точку по желанию
+                        send_cmd(ser, "WORK")
+                        break
+                else:
+                    # free — просто проезд, ничего не делаем
+                    pass
+                time.sleep(0.1)  # небольшая пауза между шагами
 
 
             send_cmd(ser, "WORK")

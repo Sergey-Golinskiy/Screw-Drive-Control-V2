@@ -28,7 +28,7 @@ header "Installing PyQt5 and graphics stack..."
 sudo apt install -y python3-pyqt5 libqt5gui5 libegl1-mesa libgles2-mesa libgbm1 libdrm2
 
 header "Installing project deps..."
-sudo apt install -y python3-serial python3-requests python3-flask python3-rpi.gpio git
+sudo apt install -y python3-serial python3-requests python3-flask python3-rpi.gpio python3-yaml git
 
 header "Adding user to groups gpio,dialout..."
 sudo newgrp gpio
@@ -114,6 +114,7 @@ fi
 
 
 header "Setting up SD.service"
+sudo touch /tmp/selected_device.json
 if [ -f ~/Screw-Drive-Control-V2/System/service/SD.service ]; then
   sudo cp ~/Screw-Drive-Control-V2/System/service/SD.service /etc/systemd/system/SD.service
   sudo systemctl daemon-reload

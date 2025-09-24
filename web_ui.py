@@ -7,6 +7,8 @@ import sys
 import os
 import signal
 import socket
+import json, yaml
+from pathlib import Path
 try:
     import socket
 except Exception:
@@ -17,6 +19,8 @@ from flask import Flask, request, jsonify, Response
 from cycle_onefile import IOController, RELAY_PINS, SENSOR_PINS
 
 BUSY_FLAG = "/tmp/screw_cycle_busy"
+CFG_PATH = Path(__file__).with_name("devices.yaml")
+SELECTED_PATH = Path("/tmp/selected_device.json")
 
 # ---------------------- Инициализация ----------------------
 app = Flask(__name__)
@@ -33,6 +37,21 @@ cycle_running = False # не используется, оставлено для
 ext_proc: subprocess.Popen | None = None
 
 TIMEOUT_SEC = 5.0  # базовый таймаут для ожидания датчиков (если понадобится)
+
+def load_devices_list():
+    data = yaml.safe_load(CFG_PATH.read_text(encoding="utf-8"))
+    devs = data.get("devices", [])
+    return [{"key": d["key"], "name": d["name"], "holes": d.get("holes", None)} for d in devs]
+
+def get_selected_key():
+    try:
+        return json.loads(SELECTED_PATH.read_text())["key"]
+    except Exception:
+        return None
+
+def set_selected_key(key: str):
+    SELECTED_PATH.write_text(json.dumps({"key": key, "ts": int(time.time())}))
+
 
 def with_io_lock(fn):
     @wraps(fn)
@@ -67,32 +86,33 @@ def send_start_trigger(host="127.0.0.1", port=8765, payload=b"START\n", timeout=
     except Exception:
         return False
 
+
+
 # ---------------------- External script control ----------------------
 def ext_is_running() -> bool:
     return ext_proc is not None and (ext_proc.poll() is None)
 
 @with_io_lock
 def ext_start() -> bool:
-    """Освобождаем GPIO в web_ui и запускаем внешний процесс."""
     global io, ext_proc
     if ext_is_running():
         return True
 
-    # Освободить GPIO у веб-панели (если инициализированы)
+    # требуем выбранного устройства
+    sel = get_selected_key()
+    if not sel:
+        return False  # UI поймает и покажет предупреждение
+
     if io is not None:
-        try:
-            io.cleanup()
-        except Exception:
-            pass
+        try: io.cleanup()
+        except Exception: pass
         io = None
 
-    # Запускаем cycle_onefile.py тем же Python
     script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cycle_onefile.py")
-    ext_proc = subprocess.Popen([sys.executable, script_path],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT,
-                                text=True,
-                                bufsize=1)
+    ext_proc = subprocess.Popen(
+        [sys.executable, script_path, "--device", sel],  # <-- здесь
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+    )
     return True
 
 @with_io_lock
@@ -128,9 +148,7 @@ def ext_stop() -> bool:
 def build_status():
     external = ext_is_running()
     if external or io is None:
-        # Если внешний процесс работает, не трогаем GPIO вовсе
-        relays = {}
-        sensors = {}
+        relays, sensors = {}, {}
     else:
         with io_lock:
             relays = dict(io.relays)
@@ -144,7 +162,10 @@ def build_status():
         "sensor_names": list(SENSOR_PINS.keys()),
         "external_running": external,
         "cycle_busy": os.path.exists(BUSY_FLAG),
+        "devices": load_devices_list(),
+        "selected_device": get_selected_key(),
     }
+
 
 # ---------------------- API ----------------------
 @app.route("/api/status", methods=["GET"])
@@ -206,6 +227,19 @@ def api_trigger_start():
     time.sleep(0.1)
     return jsonify(build_status())
 
+@app.route("/api/select", methods=["POST"])
+def api_select():
+    data = request.get_json(force=True)
+    key = data.get("key")
+    devs = load_devices_list()
+    if not any(d["key"] == key for d in devs):
+        return jsonify({"error": "unknown device"}), 400
+    set_selected_key(key)
+    return jsonify({"ok": True, "selected": key})
+
+@app.route("/api/config", methods=["GET"])
+def api_config():
+    return jsonify({"devices": load_devices_list(), "selected": get_selected_key()})
 
 # ---------------------- UI ----------------------
 INDEX_HTML = """<!doctype html>
@@ -246,10 +280,12 @@ INDEX_HTML = """<!doctype html>
       <h3>Внешний скрипт: cycle_onefile.py</h3>
       <div id="extState" class="muted">Статус: неизвестно</div>
       <div class="controls" style="margin-top:8px">
+        <select id="deviceSelect"></select>
         <button id="btnExtStart" class="btn">Start external</button>
         <button id="btnExtStop"  class="btn">Stop external</button>
         <button id="btnCmdStart" class="btn">Send START (command)</button>
       </div>
+<div class="muted">Перед запуском выберите устройство.</div>
       <div class="muted" style="margin-top:8px">Когда внешний скрипт запущен, веб-панель не трогает GPIO и ручное управление недоступно.</div>
     </div>
 
@@ -324,6 +360,63 @@ function render(data){
     `;
     sbody.appendChild(tr);
   }
+
+async function loadConfig(){
+  const res = await fetch('/api/config');
+  const data = await res.json();
+  const sel = document.getElementById('deviceSelect');
+  sel.innerHTML = '';
+  const ph = document.createElement('option');
+  ph.value = ''; ph.textContent = '— выберите устройство —';
+  sel.appendChild(ph);
+  data.devices.forEach(d=>{
+    const o = document.createElement('option');
+    o.value = d.key; o.textContent = d.name;
+    sel.appendChild(o);
+  });
+  if(data.selected){
+    sel.value = data.selected;
+  }
+}
+
+async function postSelect(key){
+  const res = await fetch('/api/select', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({key})});
+  if(!res.ok){ alert('Не удалось выбрать устройство'); }
+}
+
+document.getElementById('deviceSelect').addEventListener('change', async (e)=>{
+  const key = e.target.value || null;
+  if(key){ await postSelect(key); }
+  render(await getStatus()); // перерисовать кнопки
+});
+
+function renderExternal(isRunning, hasDevice){
+  const state = document.getElementById('extState');
+  state.innerHTML = 'Статус: ' + (isRunning ? '<span class="pill blue">EXTERNAL RUNNING</span>' : '<span class="pill gray">STOPPED</span>');
+  document.getElementById('relaysTbl').classList.toggle('disabled', isRunning);
+  document.getElementById('btnCmdStart').disabled = !isRunning;
+  // Запретить запуск без выбранного девайса
+  document.getElementById('btnExtStart').disabled = !hasDevice || isRunning;
+}
+
+function render(data){
+  document.getElementById('statusTime').textContent = 'Обновлено: ' + data.time;
+  renderExternal(data.external_running, !!data.selected_device);
+  // дальше как у вас (отрисовка таблиц)
+}
+
+document.getElementById('btnExtStart').addEventListener('click', async ()=>{
+  const sel = document.getElementById('deviceSelect').value;
+  if(!sel){ alert('Выберите устройство из списка'); return; }
+  await postExt('start');
+  render(await getStatus());
+});
+
+window.addEventListener('load', async ()=>{
+  await loadConfig();
+  render(await getStatus());
+});
+
 
   // relays
   const rbody = document.querySelector('#relaysTbl tbody');
