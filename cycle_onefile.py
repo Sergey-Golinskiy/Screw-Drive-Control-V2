@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-TRIGGER_HOST = "127.0.0.1"
-TRIGGER_PORT = 8765
 from __future__ import annotations
 import time
 import threading
@@ -27,6 +25,11 @@ try:
     import socket
 except Exception:
     socket = None
+
+# =====================[ ТРИГГЕР ]=====================
+TRIGGER_HOST = "127.0.0.1"
+TRIGGER_PORT = 8765
+
 # =====================[ КОНФИГ ]=====================
 RELAY_ACTIVE_LOW = True  # твоя 8-релейка, как правило, LOW-trigger
 BUSY_FLAG = "/tmp/screw_cycle_busy"
