@@ -154,11 +154,11 @@ class ApiClient:
     
     def config(self) -> dict:
         """GET /api/config -> {"devices":[{key,name,holes}], "selected": "<key>|None"}"""
-        return self._get("config")
+        return req_get("config")
 
     def select(self, key: str) -> dict:
         """POST /api/select {"key": key} -> {"ok":true, ...}"""
-        return self._post("select", {"key": key})
+        return req_post("select", {"key": key})
 
 
 # ================== Serial ==================
@@ -557,6 +557,10 @@ class StartTab(QWidget):
 
         # обработчик выбора
         self.cmbDevices.currentIndexChanged.connect(self.on_device_changed)
+        try:
+            self.render(self.api.status())
+        except Exception:
+            pass
 
 
     def on_start(self):
