@@ -22,7 +22,7 @@ from PyQt5.QtGui import QPixmap # type: ignore
 from PyQt5.QtWidgets import ( # type: ignore
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QTabWidget, QLabel, QPushButton, QFrame, QComboBox, QLineEdit,
-    QTextEdit, QSpinBox, QSizePolicy
+    QTextEdit, QSpinBox, QSizePolicy, QScrollArea
 )
 
 # --- GPIO (Raspberry Pi) ---
@@ -537,7 +537,6 @@ class StartTab(QWidget):
         card_lay = self.devCard.layout()
 
         # прокручиваемая область с кнопками устройств
-        from PyQt5.QtWidgets import QScrollArea, QWidget, QVBoxLayout
         self.devScroll = QScrollArea(); 
         self.devScroll.setWidgetResizable(True)
         self.devList = QWidget()
