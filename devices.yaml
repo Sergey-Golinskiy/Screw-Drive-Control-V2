@@ -4,10 +4,19 @@ devices:
     name: "Motion Cam Outdoor"
     holes: 4
     program:
-      - { type: "work",  x: 29, y: 108, f: 20000,  task: 0 }
-      - { type: "work",  x: 29, y: 52, f: 20000,  task: 0 }
-      - { type: "work",  x: 139, y: 50.1, f: 20000,  task: 0 }
-      - { type: "work",  x: 139, y: 109.1, f: 20000,  task: 0 }
+      - { type: "free",  x: 29.5, y: 100, f: 30000 }
+      - { type: "work",  x: 29.5, y: 109, f: 15000,  task: 0 }
+      - { type: "free",  x: 29.5, y: 120, f: 30000 }
+      - { type: "free",  x: 138.5, y: 120, f: 30000 }
+      - { type: "work",  x: 138.5, y: 110, f: 15000,  task: 0 }
+      - { type: "free",  x: 165, y: 110, f: 30000 }
+      - { type: "free",  x: 165, y: 52, f: 30000 }
+      - { type: "work",  x: 138.5, y: 52, f: 15000,  task: 0 }
+      - { type: "free",  x: 138.5, y: 40, f: 30000 }
+      - { type: "free",  x: 29.5, y: 40, f: 30000 }
+      - { type: "work",  x: 29.5, y: 53, f: 15000,  task: 0 }
+      - { type: "free",  x: 5, y: 53, f: 30000 }
+      - { type: "free",  x: 5, y: 100, f: 30000 }
   - key: "bracket_2holes"
     name: "Кронштейн 2 отверстия"
     holes: 2
