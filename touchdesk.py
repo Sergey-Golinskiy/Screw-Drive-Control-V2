@@ -151,6 +151,14 @@ class ApiClient:
             return req_post("script/stop", {})
         except Exception:
             return self.ext_stop()
+    
+    def config(self) -> dict:
+        """GET /api/config -> {"devices":[{key,name,holes}], "selected": "<key>|None"}"""
+        return self._get("config")
+
+    def select(self, key: str) -> dict:
+        """POST /api/select {"key": key} -> {"ok":true, ...}"""
+        return self._post("select", {"key": key})
 
 
 # ================== Serial ==================
@@ -530,17 +538,37 @@ class StartTab(QWidget):
 
         self.btnStart.clicked.connect(self.on_start)
         self.btnStop.clicked.connect(self.on_stop)
+        # --- device picker ---
+        self.devRow = QHBoxLayout()
+        self.devLabel = QLabel("Device:")
+        self.cmbDevices = QComboBox()
+        self.cmbDevices.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.cmbDevices.addItem("— select device —", userData=None)  # placeholder
+        self.devRow.addWidget(self.devLabel)
+        self.devRow.addWidget(self.cmbDevices, 1)
+
+        # вставим строку выбора над кнопками START/STOP
+        self.layout().insertLayout(0, self.devRow)
+
+        # состояние списка
+        self._devices = []         # [{"key":..., "name":..., "holes":...}, ...]
+        self._selected_key = None
+        self._cfg_refresh_ts = 0.0
+
+        # обработчик выбора
+        self.cmbDevices.currentIndexChanged.connect(self.on_device_changed)
+
 
     def on_start(self):
+        if not self._selected_key:
+            self.stateLabel.setText("Please select a device first.")
+            return
         try:
             self.stateLabel.setText("Launching the program…")
-            self.api.ext_start()  # только стартуем процесс (как в веб UI /api/ext/start)
-            # покажем подсказку оператору
-            self.stateLabel.setText(
-                'The program is running. To begin working, click "START" on the Work tab.'
-            )
-            # дальше переключать вкладку НЕ будем — авто-переброс на Work произойдёт,
-            # когда external_running станет True (логика уже есть в refresh()).
+            self.api.ext_start()
+            self.stateLabel.setText('The program is running. To begin working, click "START" on the Work tab.')
+            if callable(self.on_started):
+                self.on_started()
         except Exception as e:
             self.stateLabel.setText(f"Failed to start the program: {e}")
 
@@ -555,11 +583,73 @@ class StartTab(QWidget):
 
     def render(self, st: dict):
         running = bool(st.get("external_running"))
-        self.stateLabel.setText("Статус: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
-        self.btnStart.setProperty("ok", running)
-        self.btnStop.setProperty("ok", not running)
-        for w in (self.btnStart, self.btnStop):
-            w.style().unpolish(w); w.style().polish(w)
+        # 1) раз в 2 секунды подтягиваем конфиг (список устройств)
+        now = time.monotonic()
+        if (now - self._cfg_refresh_ts) > 2.0 or not self._devices:
+            try:
+                cfg = self.api.config()  # {"devices":[...], "selected": "key"|None}
+                self._cfg_refresh_ts = now
+                devices = cfg.get("devices") or []
+                selected = cfg.get("selected") or None
+
+                # обновим список, если изменился
+                if devices != self._devices:
+                    self._devices = devices
+                    self.cmbDevices.blockSignals(True)
+                    self.cmbDevices.clear()
+                    self.cmbDevices.addItem("— select device —", userData=None)
+                    for d in devices:
+                        self.cmbDevices.addItem(d.get("name", d.get("key", "?")), userData=d.get("key"))
+                    self.cmbDevices.blockSignals(False)
+
+                # синхронизируем выбранное
+                if selected != self._selected_key:
+                    self._selected_key = selected
+                    self.cmbDevices.blockSignals(True)
+                    if selected:
+                        # найти индекс по ключу
+                        for i in range(self.cmbDevices.count()):
+                            if self.cmbDevices.itemData(i) == selected:
+                                self.cmbDevices.setCurrentIndex(i)
+                                break
+                    else:
+                        self.cmbDevices.setCurrentIndex(0)  # placeholder
+                    self.cmbDevices.blockSignals(False)
+
+            except Exception as e:
+                # не роняем UI; оставляем прошлые данные
+                self.stateLabel.setText(f"Config fetch error: {e}")
+
+        # 2) кнопки и комбобокс в зависимости от состояния
+        has_device = bool(self._selected_key)
+        self.btnStart.setEnabled((not running) and has_device)
+        self.btnStop.setEnabled(running)
+        self.cmbDevices.setEnabled(not running)
+
+        # 3) удобный статус
+        if running:
+            self.stateLabel.setText('The program is running. Go to WORK tab and press "START".')
+        else:
+            if has_device:
+                name = self.cmbDevices.currentText()
+                self.stateLabel.setText(f"Ready. Selected device: {name}. You can start the program.")
+            else:
+                self.stateLabel.setText("Select a device to enable Start.")
+
+    
+    def on_device_changed(self, idx: int):
+        key = self.cmbDevices.currentData()
+        # игнорируем выбор placeholder
+        if key in (None, ""):
+            self._selected_key = None
+            # серверу ничего не шлём
+            return
+        try:
+            self.api.select(key)
+            self._selected_key = key
+            self.stateLabel.setText(f"Selected device: {self.cmbDevices.currentText()}")
+        except Exception as e:
+            self.stateLabel.setText(f"Failed to select device: {e}")
 
 
 
