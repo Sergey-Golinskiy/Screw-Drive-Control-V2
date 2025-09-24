@@ -276,8 +276,25 @@ class WorkTab(QWidget):
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
 
-        self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
-        root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
+        # строка статуса: слева статус, справа последнее событие
+        statusRow = QHBoxLayout(); statusRow.setSpacing(12)
+
+        self.stateLabel = QLabel("Status: unknown")
+        self.stateLabel.setObjectName("state")
+
+        self.lastEventLabel = QLabel("—")      # последнее событие (без времени)
+        self.lastEventLabel.setObjectName("lastEvent")
+        self.lastEventLabel.setMinimumWidth(260)
+        self.lastEventLabel.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        statusRow.addWidget(self.stateLabel, 1, Qt.AlignLeft)
+        statusRow.addWidget(self.lastEventLabel, 0, Qt.AlignRight)
+
+        right.addLayout(statusRow, 0)
+
+        # таймерное состояние для опроса событий со старта
+        self._last_event_refresh_ts = 0.0
+
 
         self.btnPedal.clicked.connect(self.on_pedal)
         self.btnKill.clicked.connect(self.on_kill)
@@ -740,6 +757,34 @@ class StartTab(QWidget):
                 self.stateLabel.setText(f"Ready. Selected device: {name}. You can start the program.")
             else:
                 self.stateLabel.setText("Select a device to enable Start.")
+        
+        # --- Последнее событие (ленивый опрос раз в ~1.5с) ---
+        now = time.monotonic()
+        if (now - getattr(self, "_last_event_refresh_ts", 0.0)) >= 1.5:
+            self._last_event_refresh_ts = now
+            try:
+                data = self.api.events() or {}
+                items = data.get("events", [])
+                if items:
+                    e = items[-1]  # последнее
+                    lvl  = (e.get("level", "") or "").upper()
+                    code = e.get("code", "") or ""
+                    msg  = e.get("msg", "") or ""
+                    # без времени — только LEVEL / CODE / MSG
+                    if code:
+                        txt = f"{lvl} {code}: {msg}" if lvl else f"{code}: {msg}"
+                    else:
+                        txt = f"{lvl}: {msg}" if lvl else msg
+                    # чуть укоротим, чтобы не разъезжался интерфейс
+                    if len(txt) > 120:
+                        txt = txt[:117] + "..."
+                    self.lastEventLabel.setText(txt or "—")
+                else:
+                    self.lastEventLabel.setText("—")
+            except Exception:
+                # не шумим в UI, просто оставим предыдущий текст
+                pass
+
 
     
     def on_device_changed(self, idx: int):
@@ -784,7 +829,7 @@ class MainWindow(QMainWindow):
         self.tabService = ServiceTab(self.api)
 
         tabs.addTab(self.tabWork,   "WORK")     # idx 0
-        tabs.addTab(self.tabStart,  "START")    # idx 1
+        tabs.addTab(self.tabStart,  "PARAM")    # idx 1
         tabs.addTab(self.tabService,"SERVICE")  # idx 2
 
         
@@ -992,6 +1037,11 @@ APP_QSS = f"""
 #rootFrame[state="alarm"] {{ border: {BORDER_W}px solid #e5484d; }}
 
 QTextEdit#eventsText {{ font-size: 14px; }}
+
+#lastEvent {{
+    color: #9aa7be; 
+    font-size: 14px; 
+}}
 
 #devButton {{
     font-size: 20px; 
