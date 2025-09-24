@@ -754,6 +754,11 @@ class MainWindow(QMainWindow):
         # спрячем сервис сразу при старте
         self.hide_service_tab()
 
+        try:
+            self.tabs.setCurrentWidget(self.tabStart)
+        except Exception:
+            pass
+
         self.tabs.currentChanged.connect(self.on_tab_changed)
         self.on_tab_changed(self.tabs.currentIndex())
         self._was_running = False
@@ -891,6 +896,23 @@ class MainWindow(QMainWindow):
             self.tabs.blockSignals(True)
             self.tabs.setCurrentIndex(0)
             self.tabs.blockSignals(False)
+
+        # если цикл только что остановился — вернуться на START
+        if (not running) and self._was_running:
+            start_idx = self.tabs.indexOf(self.tabStart)
+            if start_idx != -1 and self.tabs.currentIndex() != start_idx:
+                self.tabs.blockSignals(True)
+                self.tabs.setCurrentIndex(start_idx)
+                self.tabs.blockSignals(False)
+
+        # START всегда разрешена, когда не запущено
+        self.tabs.setTabEnabled(1, not running)
+
+        # SERVICE — по индексу, если присутствует
+        svc_idx = self.tabs.indexOf(self.tabService)
+        if svc_idx != -1:
+            self.tabs.setTabEnabled(svc_idx, not running)
+
 
         # 8) Запомнить состояние RUNNING
         self._was_running = running
