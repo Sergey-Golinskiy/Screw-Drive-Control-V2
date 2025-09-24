@@ -707,7 +707,7 @@ class MainWindow(QMainWindow):
         # 4) РЕНДЕР ВКЛАДОК (ровно один раз на тик)
         self.tabWork.render(st)
         self.tabStart.render(st)
-        elf.tabService.render(st)
+        self.tabService.render(st)
 
         # 5) ВИЗУАЛЬНОЕ СОСТОЯНИЕ РАМКИ
         any_alarm = any(
