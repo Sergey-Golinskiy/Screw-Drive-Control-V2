@@ -538,24 +538,52 @@ class StartTab(QWidget):
 
         self.btnStart.clicked.connect(self.on_start)
         self.btnStop.clicked.connect(self.on_stop)
-        # --- device picker ---
-        self.devRow = QHBoxLayout()
-        self.devLabel = QLabel("Device:")
-        self.cmbDevices = QComboBox()
-        self.cmbDevices.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        self.cmbDevices.addItem("— select device —", userData=None)  # placeholder
-        self.devRow.addWidget(self.devLabel)
-        self.devRow.addWidget(self.cmbDevices, 1)
+        
+        # --- BIG device picker (over the START button) ---
+        from PyQt5.QtWidgets import QListView
 
-        # вставим строку выбора над кнопками START/STOP
-        self.layout().insertLayout(0, self.devRow)
+        self.devBox = QVBoxLayout()
+        self.devTitle = QLabel("Device")
+        self.devTitle.setStyleSheet("font-size: 18px; font-weight: 600; margin-bottom: 6px;")
+
+        self.cmbDevices = QComboBox()
+        self.cmbDevices.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.cmbDevices.setMinimumHeight(56)             # выше сам комбобокс
+        self.cmbDevices.setStyleSheet("""
+            QComboBox {
+                font-size: 22px;
+                padding: 10px 14px;
+                border: 1px solid #bbb;
+                border-radius: 10px;
+                background: #fff;
+            }
+            QComboBox::drop-down { width: 40px; }
+            QAbstractItemView {
+                font-size: 22px; 
+                min-width: 360px;            /* ширина выпавшего списка */
+            }
+        """)
+        # крупный список в выпадающем меню
+        view = QListView(self.cmbDevices)
+        view.setSpacing(4)
+        view.setUniformItemSizes(True)
+        self.cmbDevices.setView(view)
+
+        # placeholder
+        self.cmbDevices.addItem("— select device —", userData=None)
+
+        self.devBox.addWidget(self.devTitle)
+        self.devBox.addWidget(self.cmbDevices)
+
+        # вставить ПЕРЕД строкой с кнопками START/STOP
+        # если у тебя есть self.startRow (где лежат кнопки) и self.rootLayout — такой приём:
+        self.layout().insertLayout(0, self.devBox)
 
         # состояние списка
-        self._devices = []         # [{"key":..., "name":..., "holes":...}, ...]
+        self._devices = []
         self._selected_key = None
         self._cfg_refresh_ts = 0.0
 
-        # обработчик выбора
         self.cmbDevices.currentIndexChanged.connect(self.on_device_changed)
         try:
             self.render(self.api.status())
