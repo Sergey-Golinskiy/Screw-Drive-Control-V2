@@ -635,6 +635,12 @@ class MainWindow(QMainWindow):
 
     # Перерисовка/логика статуса
     def refresh(self):
+        try:
+            st = self.api.status()
+        except Exception:
+            self.set_border("alarm")
+            return
+
         # обновление вкладок
         self.tabWork.render(st)
         self.tabStart.render(st)
