@@ -278,19 +278,15 @@ class WorkTab(QWidget):
 
         # строка статуса: слева статус, справа последнее событие
         statusRow = QHBoxLayout(); statusRow.setSpacing(12)
-
         self.stateLabel = QLabel("Status: unknown")
         self.stateLabel.setObjectName("state")
-
         self.lastEventLabel = QLabel("—")      # последнее событие (без времени)
         self.lastEventLabel.setObjectName("lastEvent")
         self.lastEventLabel.setMinimumWidth(260)
         self.lastEventLabel.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
         statusRow.addWidget(self.stateLabel, 1, Qt.AlignLeft)
         statusRow.addWidget(self.lastEventLabel, 0, Qt.AlignRight)
-
-        right.addLayout(statusRow, 0)
+        root.addLayout(statusRow, 0)
 
         # таймерное состояние для опроса событий со старта
         self._last_event_refresh_ts = 0.0
