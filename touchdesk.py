@@ -16,7 +16,7 @@ from PyQt5.QtGui import QPixmap # type: ignore
 from PyQt5.QtWidgets import ( # type: ignore
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QTabWidget, QLabel, QPushButton, QFrame, QComboBox, QLineEdit,
-    QTextEdit, QSpinBox, QSizePolicy, QInputDialog
+    QTextEdit, QSpinBox, QSizePolicy
 )
 
 # --- GPIO (Raspberry Pi) ---
@@ -412,95 +412,6 @@ class VirtualKeyboard(QFrame):
 
 from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout, QLabel # type: ignore
 
-class PasswordDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Password access")
-        self.setObjectName("pwDialog")
-
-        # Заголовок
-        lbl = QLabel("Enter the password to access the Service")
-        lbl.setObjectName("pwLabel")
-
-        # Поле ввода
-        self.edit = QLineEdit()
-        self.edit.setEchoMode(QLineEdit.Password)
-        self.edit.setMinimumHeight(80)    # высота ×4
-        self.edit.setMinimumWidth(400)    # ширина побольше
-        self.edit.setAlignment(Qt.AlignCenter)
-        self.edit.setObjectName("pwEdit")
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setModal(True)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-
-        # Экранная клавиатура (наша)
-        self.vkbd = VirtualKeyboard(self)
-        self.vkbd.on_enter = self.accept
-        self.edit.installEventFilter(self)
-
-        # Кнопки
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        for b in buttons.buttons():
-            b.setMinimumHeight(80)        # кнопки тоже крупные
-            b.setMinimumWidth(200)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.addWidget(lbl)
-        layout.addWidget(self.edit)
-        layout.addWidget(self.vkbd)   # клавиатура сразу под полем
-        layout.addWidget(buttons)
-
-        # применяем стили
-        self.setStyleSheet("""
-        #pwDialog {
-            background-color: rgba(26, 31, 41, 220);
-            border: 2px solid #2a3140;
-                border-radius: 20px;
-        }   
-        #pwLabel {
-            font-size: 28px;
-            font-weight: bold;
-            color: #eef3ff;
-        }
-        #pwEdit {
-            font-size: 32px;
-            font-weight: bold;
-            color: #ffffff;
-            background: #0f141c;
-            border: 2px solid #3a4356;
-            border-radius: 12px;
-            padding: 10px;
-        }
-        QPushButton {
-            font-size: 24px;
-            font-weight: bold;
-            background: #2b3342;
-            color: #e8edf8;
-            border: 2px solid #3a4356;
-            border-radius: 12px;
-            padding: 12px 20px;
-        }
-        QPushButton:pressed {
-            background: #354159;
-        }
-        """)
-
-    def eventFilter(self, obj, event):
-        if obj is self.edit:
-            if event.type() == QEvent.FocusIn:
-                self.vkbd.show_for(self.edit, self)
-            elif event.type() == QEvent.FocusOut:
-                self.vkbd.hide()
-        return super().eventFilter(obj, event)
-
-    def get_password(self):
-        if self.exec_() == QDialog.Accepted:
-            return self.edit.text()
-        return None
-
 
 class ServiceTab(QWidget):
     def __init__(self, api: ApiClient, parent=None):
@@ -674,9 +585,9 @@ class ServiceTab(QWidget):
     def eventFilter(self, obj, event):
         if obj is self.edSend:
             if event.type() == QEvent.FocusIn:
-                self.vkbd.show_for(self.edit, self)
+                self.vkeyboard.show_for(self.edSend, self)
             elif event.type() == QEvent.FocusOut:
-                self.vkbd.hide()
+                self.vkeyboard.hide()
         return super().eventFilter(obj, event)
 
 
@@ -763,7 +674,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.tabService,"SERVICE")  # idx 2
 
         self.tabs = tabs
-        self.tabs.currentChanged.connect(self.check_service_tab)
+        self.tabs.currentChanged.connect(self.on_tab_changed)
         self.tabs.currentChanged.connect(self.on_tab_changed)
         self.on_tab_changed(self.tabs.currentIndex())
         self._was_running = False
@@ -871,24 +782,6 @@ class MainWindow(QMainWindow):
             self.tabs.setTabEnabled(2, True)
 
         self._was_running = running
-
-    # Пароль на вкладку Service
-    def check_service_tab(self, idx: int):
-        if idx == 2:
-            # если вкладка Service отключена (при external_running=True) — тихо откатиться на Work
-            if not self.tabs.isTabEnabled(2):
-                self.tabs.blockSignals(True)
-                self.tabs.setCurrentIndex(0)
-                self.tabs.blockSignals(False)
-                return
-
-            dlg = PasswordDialog(self)
-            pw = dlg.get_password()
-            if pw != "1234":
-                self.tabs.blockSignals(True)
-                self.tabs.setCurrentIndex(0)
-                self.tabs.blockSignals(False)
-
 
 
     # Абсолютное позиционирование логотипа
