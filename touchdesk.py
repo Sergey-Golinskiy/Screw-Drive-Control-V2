@@ -36,10 +36,6 @@ PEDAL_GPIO_PIN = 18        # BCM 18 (физический пин 12)
 PEDAL_ACTIVE_LOW = True    # если педаль замыкается на «землю» — оставь True
 PEDAL_PULSE_MS = 120       # длительность импульса
 
-# --- Fixed serial settings for Service tab ---
-SER_DEFAULT_PORT = "/dev/ttyACM0"
-SER_DEFAULT_BAUD = 115200
-
 # ================== Конфиг ==================
 API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000/api")
 POLL_MS   = 1000
@@ -381,46 +377,13 @@ class ServiceTab(QWidget):
         self.serialCard = make_card("Arduino Serial")
         sc = self.serialCard.layout()
 
-        # --- ВЕРХНЯЯ ПАНЕЛЬ: Порт/Скорость/Кнопки ---
         top = QHBoxLayout()
-
-        # 1) СОЗДАЁМ виджеты
-        self.cbPort = QComboBox()
-        self.cbBaud = QComboBox()
+        self.cbPort = QComboBox(); self.cbBaud = QComboBox()
+        for b in (9600, 115200, 230400): self.cbBaud.addItem(str(b))
         self.btnRefresh = QPushButton("Refresh")
         self.btnOpen = QPushButton("Open")
         self.btnClose = QPushButton("Close")
-
-        # 2) ФИКСИРУЕМ значение порта и скорости
-        self.cbPort.clear()
-        self.cbPort.addItem(SER_DEFAULT_PORT)
-
-        self.cbBaud.clear()
-        self.cbBaud.addItem(str(SER_DEFAULT_BAUD))
-        self.cbBaud.setCurrentIndex(0)
-
-        # 3) ОТКЛЮЧАЕМ возможность выбора и «Refresh»
-        self.cbPort.setEnabled(False)
-        self.cbBaud.setEnabled(False)
-        self.btnRefresh.setEnabled(False)
-
-#        4) РАЗМЕЩАЕМ в лэйауте
-        top.addWidget(QLabel("Port:"));  top.addWidget(self.cbPort, 1)
-        top.addWidget(QLabel("Speed:")); top.addWidget(self.cbBaud)
-        top.addWidget(self.btnRefresh);  top.addWidget(self.btnOpen); top.addWidget(self.btnClose)
-        sc.addLayout(top)
-
-        # 5) Ниже — лог и отправка команд как было
-        self.txtLog = QTextEdit(); self.txtLog.setReadOnly(True); self.txtLog.setMinimumHeight(240)
-        sc.addWidget(self.txtLog, 1)
-
-        send = QHBoxLayout()
-        self.edSend = QLineEdit(); self.edSend.setPlaceholderText("Enter the command and press Send (\\n will be added)")
-        self.btnSend = QPushButton("Send")
-        send.addWidget(self.edSend, 1); send.addWidget(self.btnSend)
-        sc.addLayout(send)
-
-        right.addWidget(self.serialCard, 1)
+        top.addWidget(QLabel("Port:")); top.addWidget(self.cbPort, 1)
         top.addWidget(QLabel("Speed:")); top.addWidget(self.cbBaud)
         top.addWidget(self.btnRefresh); top.addWidget(self.btnOpen); top.addWidget(self.btnClose)
         sc.addLayout(top)
@@ -496,13 +459,20 @@ class ServiceTab(QWidget):
     # --- serial ---
     def fill_ports(self):
         self.cbPort.clear()
-        self.cbPort.addItem(SER_DEFAULT_PORT)
-        # скорость уже зафиксирована в __init__, тут ничего делать не надо
+        ports = []
+        if list_ports:
+            try:
+                ports = [p.device for p in list_ports.comports()]
+            except Exception:
+                ports = []
+        for p in ["/dev/ttyACM0", "/dev/ttyUSB0"]:
+            if p not in ports: ports.append(p)
+        for p in ports: self.cbPort.addItem(p)
 
     def open_serial(self):
-        port = SER_DEFAULT_PORT
-        baud = SER_DEFAULT_BAUD
-        self.reader.open(port, baud)
+        port = self.cbPort.currentText().strip()
+        baud = int(self.cbBaud.currentText())
+        if port: self.reader.open(port, baud)
 
     def send_serial(self):
         text = self.edSend.text().strip()
@@ -813,8 +783,8 @@ class MainWindow(QMainWindow):
         self.tabStart   = StartTab(self.api)
         self.tabService = ServiceTab(self.api)
 
-        tabs.addTab(self.tabWork,   "START")     # idx 0
-        tabs.addTab(self.tabStart,  "PARAM")    # idx 1
+        tabs.addTab(self.tabWork,   "WORK")     # idx 0
+        tabs.addTab(self.tabStart,  "START")    # idx 1
         tabs.addTab(self.tabService,"SERVICE")  # idx 2
 
         
