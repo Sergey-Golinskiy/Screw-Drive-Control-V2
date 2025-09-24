@@ -9,6 +9,9 @@ from pathlib import Path
 import argparse, json
 from pathlib import Path
 import yaml
+from collections import deque
+import threading
+import json
 
 from typing import Optional
 import RPi.GPIO as GPIO
@@ -36,6 +39,9 @@ BUSY_FLAG = "/tmp/screw_cycle_busy"
 
 DEFAULT_CFG = Path(__file__).with_name("devices.yaml")
 TASK_PULSE_MS = 700  # п.7: импульс выбора задачи
+
+EVENT_LOG_PATH = Path("/tmp/screw_events.jsonl")
+EVENT_BUFFER_SIZE = 200  # сколько последних событий держать в памяти
 
 # Файл конфигурации устройств (датчиков/реле)
 # Реле (BCM): подгони под свою распиновку при необходимости
@@ -87,6 +93,36 @@ SERIAL_BAUD = 115200
 SERIAL_TIMEOUT = 0.5
 SERIAL_WTIMEOUT = 0.5
 
+class StatusBus:
+    def __init__(self, path: Path):
+        self.path = path
+        self.buf = deque(maxlen=EVENT_BUFFER_SIZE)
+        self.lock = threading.Lock()
+
+    def emit(self, code: str, level: str, msg: str, **extra):
+        evt = {
+            "ts": ts(),         # твоя функция формата времени
+            "code": code,       # короткий код события
+            "level": level,     # INFO|WARN|ERROR|ALARM
+            "msg": msg,         # человекочитаемое сообщение
+            "extra": extra or {}
+        }
+        with self.lock:
+            self.buf.append(evt)
+            try:
+                with self.path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(evt, ensure_ascii=False) + "\n")
+            except Exception:
+                pass  # не валим цикл, если диск недоступен
+
+# глобальный экземпляр
+STATUS = StatusBus(EVENT_LOG_PATH)
+
+# удобные хэлперы
+def ev_info(code, msg, **kw):  STATUS.emit(code, "INFO",  msg, **kw)
+def ev_warn(code, msg, **kw):  STATUS.emit(code, "WARN",  msg, **kw)
+def ev_err(code, msg, **kw):   STATUS.emit(code, "ERROR", msg, **kw)
+def ev_alarm(code, msg, **kw): STATUS.emit(code, "ALARM", msg, **kw)
 
 def set_cycle_busy(on: bool):
     try:
@@ -396,11 +432,19 @@ def wait_close_pulse(io: IOController, sensor_name: str, window_ms: int) -> bool
 def feed_until_detect(io: IOController) -> bool:
     while True:
         io.pulse("R01_PIT", ms=FEED_PULSE_MS)
+        ev_info("FEED_PULSE", "Импульс подачи", attempt=attempt, ms=FEED_PULSE_MS)
         if wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):
+            ev_info("FEED_OK", "Винт прошёл по IND_SCRW", attempts=attempt, window_ms=IND_PULSE_WINDOW_MS)
             return True
         print("[feed] Нет импульса IND_SCRW, повторяю подачу...")
+        if attempt >= 5:
+            ev_warn("FEED_RETRY", "Нет импульса IND_SCRW, повторяем", attempt=attempt)
+        if attempt >= 20:
+            ev_alarm("FEED_FAIL", "IND_SCRW не сработал за лимит попыток", attempts=attempt)
+            return False
 
 def torque_sequence(io: IOController) -> bool:
+    ev_info("TORQUE_BEGIN", "Начало закручивания по моменту")
     """
     Включить моментный режим и опустить отвёртку до DO2_OK=CLOSE,
     затем поднять (ждать GER_C2_UP) и дать free-run импульс.
@@ -409,12 +453,26 @@ def torque_sequence(io: IOController) -> bool:
     io.set_relay("R06_DI1_POT", True)           # п.11 / 18 / 25
     io.set_relay("R04_C2", True)                # п.12 / 19 / 26
     ok = wait_sensor(io, "DO2_OK", True, TIMEOUT_SEC)
+    ev_info("TORQUE_OK", "Момент достигнут, инструмент поднят", stable_ms=ok_stable_ms)
     if not ok:
         print("[torque] TIMEOUT по DO2_OK — выключаю и поднимаю C2")
         io.set_relay("R04_C2", False)
         io.set_relay("R06_DI1_POT", False)
         wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
         return False
+    # проверка на нижний конечник (аварийный случай)
+    if io.sensor_state("GER_C2_DOWN"):
+        ev_alarm("C2_DOWN", "Достигнут нижний конечник цилиндра")
+        io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
+        wait_sensor(io, "GER_C2_UP", True, 2.0)
+        return False
+    
+    if (time.time()-t0) > TIMEOUT_SEC:
+        ev_err("TORQUE_TIMEOUT", f"Момент не достигнут за {TIMEOUT_SEC}s")
+        io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
+        wait_sensor(io, "GER_C2_UP", True, 2.0)
+        return False
+
 
     # момент достигнут — поднять инструмент
     io.set_relay("R04_C2", False)               # п.13 / 20 / 27 (часть 1)
@@ -491,6 +549,8 @@ def run_cycle(selected_key: str):
             # (опционально) выбрать таску
             if "task" in step:
                 select_task(io, int(step["task"]))
+                ev_info("TASK_SELECT", f"Выбрана таска {int(step['task'])}", task=int(step["task"]))
+
 
             # подача винта до импульса IND_SCRW (твоя функция)
             feed_until_detect(io)
@@ -517,6 +577,8 @@ def main():
     parser.add_argument("--device", required=True, help="device key from devices.yaml")
     args = parser.parse_args()
 
+    ev_info("BOOT", "Cycle script started")
+
     devices = load_devices_config()
     dev = devices.get(args.device)
     if not dev:
@@ -534,6 +596,8 @@ def main():
     print(f"[{ts()}] Открываю сериал порт {SERIAL_PORT} @ {SERIAL_BAUD}")
     ser = open_serial()
     print(f"[{ts()}] Serial открыт")
+    if not wait_ready(ser, timeout=5.0):
+        ev_err("READY_TIMEOUT", "Не дождались 'ok READY' от контроллера")
     try:
         ser.reset_input_buffer()
     except Exception:
@@ -550,7 +614,9 @@ def main():
     # 3) базовая инициализация координатной системы
     print("=== Старт скрипта ===")
     send_cmd(ser, "G28")   # хоуминг
+    ev_info("HOME", "Хоуминг выполнен")
     send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
+    ev_info("WORK", "Система приведена в рабочий пресет")
 
     # локальный хелпер перемещения (если у тебя есть глобальный move_xy — можешь использовать его)
     def _move_xy(ser_, x, y, f=None):
@@ -561,6 +627,14 @@ def main():
         while True:
             # ——— ожидание запуска ———
             set_cycle_busy(False)
+            print("[cycle] Жду педаль/START ...")
+            # здесь ничего не эмитим — просто ждём
+            if not wait_pedal_or_command(io, trg):
+                ev_info("ABORT_IDLE", "Старт не получен — выхожу")
+                break
+            ev_info("CYCLE_START", "Старт цикла (педаль/команда)")
+            set_cycle_busy(True)
+
             print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
             if not wait_pedal_or_command(io, trg):
                 print("[cycle] Старт не получен — выхожу")
@@ -576,27 +650,29 @@ def main():
 
                 # (опционально) safety: шторка
                 if io.sensor_state("AREA_SENSOR"):
-                    print("[safety] AREA_SENSOR=CLOSE — зона занята! Прерываю цикл.")
-                    io.set_relay("R04_C2", False)      # поднять цилиндр
-                    io.set_relay("R06_DI1_POT", False) # снять момент
-                    # ждать вверх по возможности, но без паники, затем вернуть систему WORK
-                    try: wait_sensor(io, "GER_C2_UP", True, 2.0)
-                    except Exception: pass
-                    send_cmd(ser, "WORK")
+                    ev_alarm("AREA_BLOCK","Штора безопасности закрыта — стоп")
+                    io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
+                    try: wait_sensor(io,"GER_C2_UP",True,2.0)
+                    except: pass
+                    send_cmd(ser,"WORK")
                     abort = True
                     break
 
                 # перемещение
+                ev_info("MOVE", f"Переход X={x} Y={y}", x=float(x), y=float(y), f=int(f or MOVE_F))
                 _move_xy(ser, x, y, f)
 
                 if t == "work":
                     # (необ.) импульс выбора таски
                     if "task" in step:
                         select_task(io, int(step["task"]))  # 0 -> R07, 1 -> R08
+                        ev_info("TASK_SELECT", f"Выбрана таска {int(step['task'])}", task=int(step["task"]))
+
 
                     # подача винта до импульса IND_SCRW
                     if not feed_until_detect(io):
                         print("[feed] Нет импульса IND_SCRW в окне — аварийный выход")
+                        ev_alarm("FEED_FAIL", "Подача винта неуспешна — аварийный выход")
                         send_cmd(ser, "WORK")
                         abort = True
                         break
@@ -604,6 +680,7 @@ def main():
                     # закрутка по моменту: R06/R04 → DO2_OK → вверх → free-run
                     if not torque_sequence(io):
                         print("[torque] Момент не достигнут — аварийный выход")
+                        ev_info("MOVE", f"Переход X={x} Y={y}", x=float(x), y=float(y), f=int(f or MOVE_F))
                         send_cmd(ser, "WORK")
                         abort = True
                         break
@@ -612,13 +689,12 @@ def main():
                 time.sleep(0.05)
 
             # ——— окончание серии ———
-            send_cmd(ser, "WORK")      # привести механику в безопасный рабочий пресет
-            set_cycle_busy(False)
-
+            send_cmd(ser, "WORK")
             if abort:
-                print("[cycle] Серия прервана — ожидаю новый старт")
+                ev_info("CYCLE_ABORT", "Серия прервана аварией/ошибкой")
             else:
-                print("[cycle] Серия шагов завершена — ожидаю новый старт")
+                ev_info("CYCLE_DONE", "Серия шагов завершена")
+            set_cycle_busy(False)
 
             # цикл продолжается: снова ждём педаль/команду
             # если нужен одноразовый запуск — раскомментируй:
@@ -626,6 +702,7 @@ def main():
 
     except KeyboardInterrupt:
         print("[cycle] Прервано пользователем (Ctrl+C)")
+        ev_info("CYCLE", "Прервано пользователем")
     finally:
         trg.stop()
         try:
@@ -647,6 +724,7 @@ def main():
         except Exception:
             pass
         print("=== Остановлено. GPIO освобождены, serial закрыт ===")
+        ev_info("SHUTDOWN", "Остановлено, GPIO/serial закрыты")
 
 if __name__ == "__main__":
     main()

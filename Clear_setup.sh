@@ -115,6 +115,7 @@ fi
 
 header "Setting up SD.service"
 sudo touch /tmp/selected_device.json
+sudo touch /tmp/screw_events.jsonl
 if [ -f ~/Screw-Drive-Control-V2/System/service/SD.service ]; then
   sudo cp ~/Screw-Drive-Control-V2/System/service/SD.service /etc/systemd/system/SD.service
   sudo systemctl daemon-reload

@@ -7,6 +7,8 @@ import sys
 import os
 import signal
 import socket
+from pathlib import Path
+import json
 import json, yaml
 from pathlib import Path
 try:
@@ -21,7 +23,7 @@ from cycle_onefile import IOController, RELAY_PINS, SENSOR_PINS
 BUSY_FLAG = "/tmp/screw_cycle_busy"
 CFG_PATH = Path(__file__).with_name("devices.yaml")
 SELECTED_PATH = Path("/tmp/selected_device.json")
-
+EVENT_LOG_PATH = Path("/tmp/screw_events.jsonl")
 # ---------------------- Инициализация ----------------------
 app = Flask(__name__)
 
@@ -252,6 +254,24 @@ def api_select():
 def api_config():
     return jsonify({"devices": load_devices_list(), "selected": get_selected_key()})
 
+@app.route("/api/events")
+def api_events():
+    limit = int(request.args.get("limit", "120"))
+    events = []
+    try:
+        lines = EVENT_LOG_PATH.read_text(encoding="utf-8").splitlines()
+        for ln in lines[-limit:]:
+            try:
+                events.append(json.loads(ln))
+            except Exception:
+                continue
+    except FileNotFoundError:
+        events = []
+    except Exception:
+        events = []
+    return jsonify({"events": events})
+
+
 # ---------------------- UI ----------------------
 INDEX_HTML = """<!doctype html>
 <html lang="ru">
@@ -317,6 +337,23 @@ INDEX_HTML = """<!doctype html>
       <div class="muted">Если внешний скрипт запущен — кнопки будут отключены.</div>
     </div>
   </div>
+<h3>События</h3>
+<div id="events" class="events"></div>
+
+<style>
+  .events { max-height: 280px; overflow:auto; border:1px solid #ddd; border-radius:8px; padding:8px; font-family: ui-monospace,monospace; background:#fafafa;}
+  .ev { display:flex; gap:8px; padding:4px 0; border-bottom:1px dashed #eee; }
+  .ev .ts { color:#888; width:150px; flex:0 0 auto;}
+  .ev .lvl { width:70px; text-align:center; border-radius:6px; padding:0 6px; flex:0 0 auto;}
+  .ev .lvl.INFO { background:#eef; }
+  .ev .lvl.WARN { background:#ffeec2; }
+  .ev .lvl.ERROR { background:#ffd6d6; }
+  .ev .lvl.ALARM { background:#ffc6c6; font-weight:700;}
+  .ev .code { width:120px; color:#555; flex:0 0 auto;}
+  .ev .msg { flex:1; }
+</style>
+
+  
 
 <script>
 async function getStatus(){
@@ -482,6 +519,36 @@ window.addEventListener('load', async ()=>{
   await loadConfig();          // ← заполняем выпадающий список
   render(await getStatus());   // ← рисуем UI
   setInterval(refresh, 1000);
+});
+
+async function loadEvents(){
+  try{
+    const res = await fetch('/api/events?limit=120');
+    if(!res.ok) return;
+    const data = await res.json();
+    const box = document.getElementById('events');
+    box.innerHTML = '';
+    (data.events || []).forEach(ev=>{
+      const div = document.createElement('div');
+      div.className = 'ev';
+      div.innerHTML = `
+        <div class="ts">${ev.ts || ''}</div>
+        <div class="lvl ${ev.level || ''}">${ev.level || ''}</div>
+        <div class="code">${ev.code || ''}</div>
+        <div class="msg">${ev.msg || ''}</div>
+      `;
+      box.appendChild(div);
+    });
+    box.scrollTop = box.scrollHeight; // автоскролл вниз
+  }catch(e){ console.error(e); }
+}
+
+// в onload после твоих loadConfig()/render()
+window.addEventListener('load', async ()=>{
+  // у тебя уже есть: await loadConfig(); render(await getStatus());
+  await loadEvents();
+  // периодические обновления:
+  setInterval(loadEvents, 1500);
 });
 </script>
 
