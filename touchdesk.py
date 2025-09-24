@@ -519,72 +519,69 @@ class ServiceTab(QWidget):
 
 
 class StartTab(QWidget):
-    """Третья вкладка: большие кнопки Start/Stop external."""
+    """Вкладка START: слева список устройств (кнопки), справа вертикально START/STOP."""
     def __init__(self, api: ApiClient, parent=None):
         super().__init__(parent)
         self.api = api
         self.on_started = None  # коллбек задаст MainWindow
 
-        root = QVBoxLayout(self); root.setContentsMargins(24,24,24,24); root.setSpacing(18)
-        row = QHBoxLayout(); row.setSpacing(18)
+        # === корневой лэйаут вкладки: ДВЕ КОЛОНКИ ===
+        root = QHBoxLayout(self); 
+        root.setContentsMargins(24,24,24,24); 
+        root.setSpacing(18)
+
+        # --------- ЛЕВАЯ КОЛОНКА (≈30%) — Список устройств ----------
+        left = QVBoxLayout(); left.setSpacing(12)
+
+        self.devCard = make_card("Devices")
+        card_lay = self.devCard.layout()
+
+        # прокручиваемая область с кнопками устройств
+        from PyQt5.QtWidgets import QScrollArea, QWidget, QVBoxLayout
+        self.devScroll = QScrollArea(); 
+        self.devScroll.setWidgetResizable(True)
+        self.devList = QWidget()
+        self.devListLay = QVBoxLayout(self.devList); 
+        self.devListLay.setContentsMargins(0,0,0,0); 
+        self.devListLay.setSpacing(10)
+        self.devScroll.setWidget(self.devList)
+
+        card_lay.addWidget(self.devScroll)
+        left.addWidget(self.devCard)
+
+        # --------- ПРАВАЯ КОЛОНКА (≈70%) — Кнопки START/STOP вертикально ----------
+        right = QVBoxLayout(); right.setSpacing(18)
+
         self.btnStart = big_button("START program")
         self.btnStop  = big_button("STOP program")
         self.btnStop.setObjectName("stopButton")
-        row.addWidget(self.btnStart); row.addWidget(self.btnStop)
-        root.addLayout(row, 1)
 
-        self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
-        root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
+        # делаем кнопки побольше и с одинаковой высотой
+        self.btnStart.setMinimumHeight(220)
+        self.btnStop.setMinimumHeight(220)
+
+        right.addWidget(self.btnStart, 1)
+        right.addWidget(self.btnStop,  1)
+
+        # подпись состояния
+        self.stateLabel = QLabel("Status: unknown"); 
+        self.stateLabel.setObjectName("state")
+        right.addWidget(self.stateLabel, 0, Qt.AlignLeft)
+
+        # собрать две колонки в корневой лэйаут (30/70 через стили растяжения)
+        root.addLayout(left, 3)
+        root.addLayout(right, 7)
+
+        # --- состояние и связи ---
+        self._devices = []          # [{"key","name","holes"}, ...]
+        self._selected_key = None
+        self._cfg_refresh_ts = 0.0
+        self._device_buttons = {}   # key -> QPushButton
 
         self.btnStart.clicked.connect(self.on_start)
         self.btnStop.clicked.connect(self.on_stop)
-        
-        # --- BIG device picker (over the START button) ---
-        from PyQt5.QtWidgets import QListView
 
-        self.devBox = QVBoxLayout()
-        self.devTitle = QLabel("Device")
-        self.devTitle.setStyleSheet("font-size: 18px; font-weight: 600; margin-bottom: 6px;")
-
-        self.cmbDevices = QComboBox()
-        self.cmbDevices.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.cmbDevices.setMinimumHeight(56)             # выше сам комбобокс
-        self.cmbDevices.setStyleSheet("""
-            QComboBox {
-                font-size: 22px;
-                padding: 10px 14px;
-                border: 1px solid #bbb;
-                border-radius: 10px;
-                background: #fff;
-            }
-            QComboBox::drop-down { width: 40px; }
-            QAbstractItemView {
-                font-size: 22px; 
-                min-width: 360px;            /* ширина выпавшего списка */
-            }
-        """)
-        # крупный список в выпадающем меню
-        view = QListView(self.cmbDevices)
-        view.setSpacing(4)
-        view.setUniformItemSizes(True)
-        self.cmbDevices.setView(view)
-
-        # placeholder
-        self.cmbDevices.addItem("— select device —", userData=None)
-
-        self.devBox.addWidget(self.devTitle)
-        self.devBox.addWidget(self.cmbDevices)
-
-        # вставить ПЕРЕД строкой с кнопками START/STOP
-        # если у тебя есть self.startRow (где лежат кнопки) и self.rootLayout — такой приём:
-        self.layout().insertLayout(0, self.devBox)
-
-        # состояние списка
-        self._devices = []
-        self._selected_key = None
-        self._cfg_refresh_ts = 0.0
-
-        self.cmbDevices.currentIndexChanged.connect(self.on_device_changed)
+        # первичный рендер (чтоб сразу увидеть устройства, если API доступен)
         try:
             self.render(self.api.status())
         except Exception:
@@ -604,7 +601,50 @@ class StartTab(QWidget):
         except Exception as e:
             self.stateLabel.setText(f"Failed to start the program: {e}")
 
+        # --- создание/перестройка списка устройств слева ---
+    def _rebuild_devices(self, devices: list[dict]):
+        # убрать старые кнопки
+        for i in reversed(range(self.devListLay.count())):
+            w = self.devListLay.itemAt(i).widget()
+            if w: w.setParent(None); w.deleteLater()
+        self._device_buttons.clear()
 
+        # создать кнопки
+        for d in devices:
+            key = d.get("key")
+            name = d.get("name", key or "?")
+            holes = d.get("holes")
+            text = f"{name}" + (f"\n{holes} holes" if holes is not None else "")
+
+            btn = QPushButton(text)
+            btn.setObjectName("devButton")
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn.setMinimumHeight(80)
+            btn.setCheckable(False)
+            btn.clicked.connect(lambda _=False, k=key: self._select_device(k))
+
+            self.devListLay.addWidget(btn)
+            self._device_buttons[key] = btn
+
+        self.devListLay.addStretch(1)
+        self._apply_dev_styles()
+
+    def _apply_dev_styles(self):
+        # подсветка выбранного девайса
+        for key, btn in self._device_buttons.items():
+            btn.setProperty("selected", key == self._selected_key)
+            btn.style().unpolish(btn); btn.style().polish(btn)
+
+    def _select_device(self, key: str):
+        if not key:
+            return
+        try:
+            self.api.select(key)
+            self._selected_key = key
+            self._apply_dev_styles()
+            self.stateLabel.setText(f"Selected device: {self._device_buttons[key].text().splitlines()[0]}")
+        except Exception as e:
+            self.stateLabel.setText(f"Failed to select device: {e}")
 
     def on_stop(self):
         try:
@@ -615,7 +655,8 @@ class StartTab(QWidget):
 
     def render(self, st: dict):
         running = bool(st.get("external_running"))
-        # 1) раз в 2 секунды подтягиваем конфиг (список устройств)
+
+        # 1) раз в 2 секунды подтягиваем конфиг
         now = time.monotonic()
         if (now - self._cfg_refresh_ts) > 2.0 or not self._devices:
             try:
@@ -624,46 +665,35 @@ class StartTab(QWidget):
                 devices = cfg.get("devices") or []
                 selected = cfg.get("selected") or None
 
-                # обновим список, если изменился
                 if devices != self._devices:
                     self._devices = devices
-                    self.cmbDevices.blockSignals(True)
-                    self.cmbDevices.clear()
-                    self.cmbDevices.addItem("— select device —", userData=None)
-                    for d in devices:
-                        self.cmbDevices.addItem(d.get("name", d.get("key", "?")), userData=d.get("key"))
-                    self.cmbDevices.blockSignals(False)
+                    self._rebuild_devices(devices)
 
                 # синхронизируем выбранное
                 if selected != self._selected_key:
                     self._selected_key = selected
-                    self.cmbDevices.blockSignals(True)
-                    if selected:
-                        # найти индекс по ключу
-                        for i in range(self.cmbDevices.count()):
-                            if self.cmbDevices.itemData(i) == selected:
-                                self.cmbDevices.setCurrentIndex(i)
-                                break
-                    else:
-                        self.cmbDevices.setCurrentIndex(0)  # placeholder
-                    self.cmbDevices.blockSignals(False)
+                    self._apply_dev_styles()
 
             except Exception as e:
-                # не роняем UI; оставляем прошлые данные
                 self.stateLabel.setText(f"Config fetch error: {e}")
 
-        # 2) кнопки и комбобокс в зависимости от состояния
+        # 2) доступность действий
         has_device = bool(self._selected_key)
         self.btnStart.setEnabled((not running) and has_device)
         self.btnStop.setEnabled(running)
-        self.cmbDevices.setEnabled(not running)
 
-        # 3) удобный статус
+        # кнопки устройств блокируем во время работы
+        for btn in self._device_buttons.values():
+            btn.setEnabled(not running)
+
+        # 3) статус
         if running:
             self.stateLabel.setText('The program is running. Go to WORK tab and press "START".')
         else:
             if has_device:
-                name = self.cmbDevices.currentText()
+                name = ""
+                if self._selected_key in self._device_buttons:
+                    name = self._device_buttons[self._selected_key].text().splitlines()[0]
                 self.stateLabel.setText(f"Ready. Selected device: {name}. You can start the program.")
             else:
                 self.stateLabel.setText("Select a device to enable Start.")
@@ -895,6 +925,24 @@ APP_QSS = f"""
 #rootFrame[state="ok"]    {{ border: {BORDER_W}px solid #1ac06b; }}
 #rootFrame[state="idle"]  {{ border: {BORDER_W}px solid #f0b400; }}
 #rootFrame[state="alarm"] {{ border: {BORDER_W}px solid #e5484d; }}
+
+#devButton {{
+    font-size: 20px; 
+    font-weight: 700;
+    text-align: left;
+    padding: 14px 16px;
+    border: 2px solid #3a4356; 
+    border-radius: 14px;
+    background: #2b3342; 
+    color: #e8edf8;
+}}
+#devButton:hover {{ background: #354159; }}
+#devButton[selected="true"] {{
+    border-color: #1ac06b; 
+    background: #153f2c;
+    color: #e9ffee;
+}}
+
 
 #tabs::pane {{ border: none; }}
 QTabBar::tab {{
