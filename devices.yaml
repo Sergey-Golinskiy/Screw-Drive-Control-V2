@@ -17,11 +17,11 @@ devices:
       - { type: "work",  x: 29.5, y: 53, f: 30000,  task: 0 }
       #- { type: "free",  x: 5, y: 53, f: 30000 }
       #- { type: "free",  x: 5, y: 100, f: 30000 }
-  #- key: "bracket_2holes"
-  #  name: "Кронштейн 2 отверстия"
-  #  holes: 2
-  #  program:
-  #    - { type: "free", x: 10, y: 10 }
-  #    - { type: "work", x: 42, y: 95,  task: 0 }
-  #    - { type: "work", x: 12, y: 75,  task: 0 }
-  #    - { type: "free", x: 10, y: 10 }
+  - key: "MCO_4holes_test"
+    name: "MCO_not_working"
+    holes: 2
+    program:
+      - { type: "free", x: 10, y: 10 }
+      - { type: "work", x: 42, y: 95,  task: 0 }
+      - { type: "work", x: 12, y: 75,  task: 0 }
+      - { type: "free", x: 10, y: 10 }
