@@ -381,26 +381,46 @@ class ServiceTab(QWidget):
         self.serialCard = make_card("Arduino Serial")
         sc = self.serialCard.layout()
 
+        # --- ВЕРХНЯЯ ПАНЕЛЬ: Порт/Скорость/Кнопки ---
         top = QHBoxLayout()
-        self.cbPort.clear()
-        self.cbPort.addItem(SER_DEFAULT_PORT)
 
-        # гарантируем, что 115200 выбран в списке скоростей
-        idx = self.cbBaud.findText(str(SER_DEFAULT_BAUD))
-        if idx < 0:
-            self.cbBaud.addItem(str(SER_DEFAULT_BAUD))
-            idx = self.cbBaud.findText(str(SER_DEFAULT_BAUD))
-        self.cbBaud.setCurrentIndex(idx)
-
-        # отключаем возможность менять
-        self.cbPort.setEnabled(False)
-        self.cbBaud.setEnabled(False)
-        self.btnRefresh.setEnabled(False)
-        # (кнопки Open/Close остаются активными)
+        # 1) СОЗДАЁМ виджеты
+        self.cbPort = QComboBox()
+        self.cbBaud = QComboBox()
         self.btnRefresh = QPushButton("Refresh")
         self.btnOpen = QPushButton("Open")
         self.btnClose = QPushButton("Close")
-        top.addWidget(QLabel("Port:")); top.addWidget(self.cbPort, 1)
+
+        # 2) ФИКСИРУЕМ значение порта и скорости
+        self.cbPort.clear()
+        self.cbPort.addItem(SER_DEFAULT_PORT)
+
+        self.cbBaud.clear()
+        self.cbBaud.addItem(str(SER_DEFAULT_BAUD))
+        self.cbBaud.setCurrentIndex(0)
+
+        # 3) ОТКЛЮЧАЕМ возможность выбора и «Refresh»
+        self.cbPort.setEnabled(False)
+        self.cbBaud.setEnabled(False)
+        self.btnRefresh.setEnabled(False)
+
+#        4) РАЗМЕЩАЕМ в лэйауте
+        top.addWidget(QLabel("Port:"));  top.addWidget(self.cbPort, 1)
+        top.addWidget(QLabel("Speed:")); top.addWidget(self.cbBaud)
+        top.addWidget(self.btnRefresh);  top.addWidget(self.btnOpen); top.addWidget(self.btnClose)
+        sc.addLayout(top)
+
+        # 5) Ниже — лог и отправка команд как было
+        self.txtLog = QTextEdit(); self.txtLog.setReadOnly(True); self.txtLog.setMinimumHeight(240)
+        sc.addWidget(self.txtLog, 1)
+
+        send = QHBoxLayout()
+        self.edSend = QLineEdit(); self.edSend.setPlaceholderText("Enter the command and press Send (\\n will be added)")
+        self.btnSend = QPushButton("Send")
+        send.addWidget(self.edSend, 1); send.addWidget(self.btnSend)
+        sc.addLayout(send)
+
+        right.addWidget(self.serialCard, 1)
         top.addWidget(QLabel("Speed:")); top.addWidget(self.cbBaud)
         top.addWidget(self.btnRefresh); top.addWidget(self.btnOpen); top.addWidget(self.btnClose)
         sc.addLayout(top)
