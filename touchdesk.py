@@ -15,7 +15,7 @@ import requests
 
 from functools import partial
 
-from PyQt5.QtCore import QCoreApplication, Qt, QTimer, QThread, QEvent, pyqtSignal as Signal 
+from PyQt5.QtCore import Qt, QTimer, QThread, QEvent, pyqtSignal as Signal 
 #QCoreApplication.setAttribute(Qt.AA_DisableHighDpiScaling, True)
 from PyQt5.QtGui import QFont # type: ignore
 from PyQt5.QtGui import QPixmap # type: ignore
