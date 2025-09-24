@@ -36,6 +36,10 @@ PEDAL_GPIO_PIN = 18        # BCM 18 (физический пин 12)
 PEDAL_ACTIVE_LOW = True    # если педаль замыкается на «землю» — оставь True
 PEDAL_PULSE_MS = 120       # длительность импульса
 
+# --- Fixed serial settings for Service tab ---
+SER_DEFAULT_PORT = "/dev/ttyACM0"
+SER_DEFAULT_BAUD = 115200
+
 # ================== Конфиг ==================
 API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000/api")
 POLL_MS   = 1000
@@ -378,8 +382,21 @@ class ServiceTab(QWidget):
         sc = self.serialCard.layout()
 
         top = QHBoxLayout()
-        self.cbPort = QComboBox(); self.cbBaud = QComboBox()
-        for b in (9600, 115200, 230400): self.cbBaud.addItem(str(b))
+        self.cbPort.clear()
+        self.cbPort.addItem(SER_DEFAULT_PORT)
+
+        # гарантируем, что 115200 выбран в списке скоростей
+        idx = self.cbBaud.findText(str(SER_DEFAULT_BAUD))
+        if idx < 0:
+            self.cbBaud.addItem(str(SER_DEFAULT_BAUD))
+            idx = self.cbBaud.findText(str(SER_DEFAULT_BAUD))
+        self.cbBaud.setCurrentIndex(idx)
+
+        # отключаем возможность менять
+        self.cbPort.setEnabled(False)
+        self.cbBaud.setEnabled(False)
+        self.btnRefresh.setEnabled(False)
+        # (кнопки Open/Close остаются активными)
         self.btnRefresh = QPushButton("Refresh")
         self.btnOpen = QPushButton("Open")
         self.btnClose = QPushButton("Close")
@@ -459,20 +476,13 @@ class ServiceTab(QWidget):
     # --- serial ---
     def fill_ports(self):
         self.cbPort.clear()
-        ports = []
-        if list_ports:
-            try:
-                ports = [p.device for p in list_ports.comports()]
-            except Exception:
-                ports = []
-        for p in ["/dev/ttyACM0", "/dev/ttyUSB0"]:
-            if p not in ports: ports.append(p)
-        for p in ports: self.cbPort.addItem(p)
+        self.cbPort.addItem(SER_DEFAULT_PORT)
+        # скорость уже зафиксирована в __init__, тут ничего делать не надо
 
     def open_serial(self):
-        port = self.cbPort.currentText().strip()
-        baud = int(self.cbBaud.currentText())
-        if port: self.reader.open(port, baud)
+        port = SER_DEFAULT_PORT
+        baud = SER_DEFAULT_BAUD
+        self.reader.open(port, baud)
 
     def send_serial(self):
         text = self.edSend.text().strip()
@@ -783,8 +793,8 @@ class MainWindow(QMainWindow):
         self.tabStart   = StartTab(self.api)
         self.tabService = ServiceTab(self.api)
 
-        tabs.addTab(self.tabWork,   "WORK")     # idx 0
-        tabs.addTab(self.tabStart,  "START")    # idx 1
+        tabs.addTab(self.tabWork,   "START")     # idx 0
+        tabs.addTab(self.tabStart,  "PARAM")    # idx 1
         tabs.addTab(self.tabService,"SERVICE")  # idx 2
 
         
