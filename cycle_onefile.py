@@ -149,6 +149,26 @@ def ts():
 def relay_gpio_value(on: bool) -> int:
     return GPIO.LOW if (RELAY_ACTIVE_LOW and on) or ((not RELAY_ACTIVE_LOW) and (not on)) else GPIO.HIGH
 
+def handle_area_trip(io: "IOController", ser) -> None:
+    # немедленно снять усилия/опускание
+    try:
+        io.set_relay("R06_DI1_POT", False)  # момент
+        io.set_relay("R04_C2", False)       # цилиндр вверх
+    except Exception:
+        pass
+    try:
+        wait_sensor(io, "GER_C2_UP", True, 2.0)
+    except Exception:
+        pass
+    # перевести механику в безопасный пресет контроллера
+    send_cmd(ser, "WORK")
+    # событие
+    try:
+        ev_alarm("AREA_TRIP", "Сработал защитный сенсор. Останов и WORK. Так делать не нужно.")
+    except Exception:
+        print("[safety] AREA_SENSOR TRIP: останов и WORK")
+
+
 # =====================[ IO КОНТРОЛЛЕР ]=======================
 class IOController:
     def __init__(self):
@@ -564,6 +584,53 @@ def run_cycle(selected_key: str):
         pass
     return 0
 
+def torque_sequence_with_area(io: "IOController", ser, area_armed: bool) -> bool:
+    ev_info("TORQUE_BEGIN", "Начало закручивания по моменту")
+    io.set_relay("R06_DI1_POT", True)
+    io.set_relay("R04_C2", True)
+    t0 = time.time()
+    ok_stable_ms = 20
+    t_ok = None
+    while True:
+        # авария: нижний конечник
+        if io.sensor_state("GER_C2_DOWN"):
+            ev_alarm("C2_DOWN", "Достигнут нижний конечник цилиндра")
+            io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
+            wait_sensor(io, "GER_C2_UP", True, 2.0)
+            send_cmd(ser, "WORK")
+            return False
+
+        # контроль шторы (только когда «на охране»)
+        if area_armed and io.sensor_state("AREA_SENSOR"):
+            handle_area_trip(io, ser)
+            return False
+
+        # проверка момента со стабильностью
+        if io.sensor_state("DO2_OK"):
+            if t_ok is None:
+                t_ok = time.time()
+            elif (time.time() - t_ok) * 1000 >= ok_stable_ms:
+                break
+        else:
+            t_ok = None
+
+        if (time.time() - t0) > TIMEOUT_SEC:
+            ev_err("TORQUE_TIMEOUT", f"Момент не достигнут за {TIMEOUT_SEC}s")
+            io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
+            wait_sensor(io, "GER_C2_UP", True, 2.0)
+            send_cmd(ser, "WORK")
+            return False
+
+        time.sleep(0.005)
+
+    # успех
+    io.set_relay("R04_C2", False)
+    io.set_relay("R06_DI1_POT", False)
+    wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
+    io.pulse("R05_DI4_FREE", ms=FREE_BURST_MS)
+    ev_info("TORQUE_OK", "Момент достигнут, инструмент поднят", stable_ms=ok_stable_ms)
+    return True
+
 
 # =====================[ ГЛАВНАЯ ЛОГИКА ]=======================
 def main():
@@ -624,59 +691,85 @@ def main():
             # ——— ожидание запуска ———
             set_cycle_busy(False)
             print("[cycle] Жду педаль/START ...")
-            # здесь ничего не эмитим — просто ждём
             if not wait_pedal_or_command(io, trg):
                 ev_info("ABORT_IDLE", "Старт не получен — выхожу")
                 break
+
             ev_info("CYCLE_START", "Старт цикла (педаль/команда)")
-            set_cycle_busy(True)
-
-            print("[cycle] Жду педаль PED_START ИЛИ команду START от UI...")
-            if not wait_pedal_or_command(io, trg):
-                print("[cycle] Старт не получен — выхожу")
-                break
-
             set_cycle_busy(True)
 
             # ——— исполнение маршрута из devices.yaml ———
             abort = False
-            for step in program:
+            area_armed = False  # контроль шторы включим после 1-й точки
+
+            for idx, step in enumerate(program):
                 t = step.get("type", "free")
                 x = step["x"]; y = step["y"]; f = step.get("f")
+                feed_val = int(f or MOVE_F)
 
-                # (опционально) safety: шторка
-                if io.sensor_state("AREA_SENSOR"):
-                    ev_alarm("AREA_BLOCK","Штора безопасности закрыта — стоп")
-                    io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
-                    try: wait_sensor(io,"GER_C2_UP",True,2.0)
-                    except: pass
-                    send_cmd(ser,"WORK")
+                # перемещение в точку шага
+                ev_info("MOVE", f"Переход X={x} Y={y}", x=float(x), y=float(y), f=feed_val)
+                _move_xy(ser, x, y, f)
+
+                # включаем контроль шторы после первой достигнутой точки
+                if not area_armed and idx == 0:
+                    area_armed = True
+                    ev_info("AREA_ARM", "Контроль шторы активирован (с точки 1 и до конца серии)")
+
+                # быстрый safety-чек сразу после перемещения
+                if area_armed and io.sensor_state("AREA_SENSOR"):
+                    ev_alarm("AREA_TRIP", "Сработал защитный сенсор. Останов и WORK. Так делать не нужно.")
+                    io.set_relay("R06_DI1_POT", False)
+                    io.set_relay("R04_C2", False)
+                    try: wait_sensor(io, "GER_C2_UP", True, 2.0)
+                    except Exception: pass
+                    send_cmd(ser, "WORK")
                     abort = True
                     break
-
-                # перемещение
-                ev_info("MOVE", f"Переход X={x} Y={y}", x=float(x), y=float(y), f=int(f or MOVE_F))
-                _move_xy(ser, x, y, f)
 
                 if t == "work":
                     # (необ.) импульс выбора таски
                     if "task" in step:
-                        select_task(io, int(step["task"]))  # 0 -> R07, 1 -> R08
+                        select_task(io, int(step["task"]))
                         ev_info("TASK_SELECT", f"Выбрана таска {int(step['task'])}", task=int(step["task"]))
 
+                    # перед подачей — ещё раз safety
+                    if area_armed and io.sensor_state("AREA_SENSOR"):
+                        ev_alarm("AREA_TRIP", "Сработал защитный сенсор перед подачей. Останов и WORK.")
+                        io.set_relay("R06_DI1_POT", False)
+                        io.set_relay("R04_C2", False)
+                        try: wait_sensor(io, "GER_C2_UP", True, 2.0)
+                        except Exception: pass
+                        send_cmd(ser, "WORK")
+                        abort = True
+                        break
 
                     # подача винта до импульса IND_SCRW
                     if not feed_until_detect(io):
-                        print("[feed] Нет импульса IND_SCRW в окне — аварийный выход")
                         ev_alarm("FEED_FAIL", "Подача винта неуспешна — аварийный выход")
                         send_cmd(ser, "WORK")
                         abort = True
                         break
 
-                    # закрутка по моменту: R06/R04 → DO2_OK → вверх → free-run
-                    if not torque_sequence(io):
-                        print("[torque] Момент не достигнут — аварийный выход")
-                        ev_info("MOVE", f"Переход X={x} Y={y}", x=float(x), y=float(y), f=int(f or MOVE_F))
+                    # перед закруткой — снова safety
+                    if area_armed and io.sensor_state("AREA_SENSOR"):
+                        ev_alarm("AREA_TRIP", "Сработал защитный сенсор перед закруткой. Останов и WORK.")
+                        io.set_relay("R06_DI1_POT", False)
+                        io.set_relay("R04_C2", False)
+                        try: wait_sensor(io, "GER_C2_UP", True, 2.0)
+                        except Exception: pass
+                        send_cmd(ser, "WORK")
+                        abort = True
+                        break
+
+                    # закрутка по моменту (с поддержкой контроля шторы внутри, если есть)
+                    if "torque_sequence_with_area" in globals():
+                        ok_torque = torque_sequence_with_area(io, ser, area_armed)
+                    else:
+                        ok_torque = torque_sequence(io)
+
+                    if not ok_torque:
+                        ev_err("TORQUE_FAIL", "Момент не достигнут/авария в процессе — останов и WORK")
                         send_cmd(ser, "WORK")
                         abort = True
                         break
@@ -686,10 +779,14 @@ def main():
 
             # ——— окончание серии ———
             send_cmd(ser, "WORK")
+            if area_armed:
+                ev_info("AREA_DISARM", "Контроль шторы отключён (конец серии)")
+
             if abort:
                 ev_info("CYCLE_ABORT", "Серия прервана аварией/ошибкой")
             else:
                 ev_info("CYCLE_DONE", "Серия шагов завершена")
+
             set_cycle_busy(False)
 
             # цикл продолжается: снова ждём педаль/команду
