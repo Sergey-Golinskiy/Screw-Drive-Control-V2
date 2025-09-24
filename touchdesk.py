@@ -592,6 +592,9 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.tabStart,  "START")    # idx 1
         tabs.addTab(self.tabService,"SERVICE")  # idx 2
 
+        
+        self.tabs = tabs
+
         # --- состояние показа сервис-вкладки ---
         self.service_visible = True   # временно True, чтобы убрать корректно
         self.service_unlocked = False
@@ -600,7 +603,6 @@ class MainWindow(QMainWindow):
         # спрячем сервис сразу при старте
         self.hide_service_tab()
 
-        self.tabs = tabs
         self.tabs.currentChanged.connect(self.on_tab_changed)
         self.on_tab_changed(self.tabs.currentIndex())
         self._was_running = False
@@ -662,109 +664,84 @@ class MainWindow(QMainWindow):
 
     # Перерисовка/логика статуса
     def refresh(self):
+        # 1) Получаем статус
         try:
             st = self.api.status()
         except Exception:
             self.set_border("alarm")
             return
-        
-        # --- управление видимостью SERVICE по условию ---
+
+        # 2) Базовые флаги
         running = bool(st.get("external_running"))
         sensors = st.get("sensors", {}) or {}
-        pedal_pressed = bool(sensors.get("PED_START"))  # CLOSE = True
+        # ВНИМАНИЕ: имя датчика педали должно совпадать с тем, что отдаёт /api/status
+        # Если у тебя другое имя (например, "PEDAL"), поменяй ключ ниже:
+        pedal_pressed = bool(sensors.get("PED_START"))
 
+        # 3) ЛОГИКА ВИДИМОСТИ SERVICE
         if running:
-            # при запуске цикла — прячем сервис и сбрасываем «разблокирован»
+            # Цикл запущен → прячем SERVICE до следующей разблокировки
             if self.service_visible:
                 self.hide_service_tab()
             self.service_unlocked = False
             self.ped_hold_start = None
         else:
-            # цикл не запущен — можно открыть сервис долгим удержанием педали
+            # Цикл не запущен → разрешаем «секретное» открытие по удержанию педали 3 сек
             if not self.service_unlocked:
                 if pedal_pressed:
+                    # старт удержания
                     if self.ped_hold_start is None:
-                        self.ped_hold_start = time.time()
-                    elif (time.time() - self.ped_hold_start) >= 3.0:
-                        # разблокировать и показать сервис до следующего старта цикла
+                        self.ped_hold_start = time.monotonic()
+                    # удержание достигло 3.0 сек — разблокируем и показываем SERVICE
+                    elif (time.monotonic() - self.ped_hold_start) >= 3.0:
                         self.service_unlocked = True
                         self.show_service_tab()
                 else:
-                    # отпустили педаль — сброс таймера удержания
+                    # педаль отпущена — сброс
                     self.ped_hold_start = None
             else:
-                # уже разблокировано: сервис должен быть виден
+                # уже разблокировано — гарантируем, что SERVICE видна
                 if not self.service_visible:
                     self.show_service_tab()
 
-        # если где-то дальше у тебя была блокировка вкладок во время работы — оставь,
-        # только адресуйся по индексу SERVICE таба, если он виден
+        # 4) РЕНДЕР ВКЛАДОК (ровно один раз на тик)
+        self.tabWork.render(st)
+        self.tabStart.render(st)
+        elf.tabService.render(st)
+
+        # 5) ВИЗУАЛЬНОЕ СОСТОЯНИЕ РАМКИ
+        any_alarm = any(
+            re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and bool(v)
+            for k, v in sensors.items()
+        )
+        cycle_active = bool(
+            st.get("cycle_busy")
+            or st.get("cycle_active")
+            or any(re.search(r"(pedal|emul|start_btn|cycle_running)", k, re.I) and bool(v)
+                for k, v in sensors.items())
+        )
+        if any_alarm:
+            self.set_border("alarm")
+        elif cycle_active and running:
+            self.set_border("ok")
+        else:
+            self.set_border("idle")
+
+        # 6) БЛОКИРОВКА ТАБОВ ВО ВРЕМЯ РАБОТЫ
+        # START таб включён только когда цикл не идёт
+        self.tabs.setTabEnabled(1, not running)
+        # SERVICE таб может быть скрыт — найдём индекс динамически
         svc_idx = self.tabs.indexOf(self.tabService)
         if svc_idx != -1:
             self.tabs.setTabEnabled(svc_idx, not running)
 
+        # 7) Автопрыжок на WORK при переходе в RUNNING
+        if running and not self._was_running and self.tabs.currentIndex() != 0:
+            self.tabs.blockSignals(True)
+            self.tabs.setCurrentIndex(0)
+            self.tabs.blockSignals(False)
 
-        # обновление вкладок
-        self.tabWork.render(st)
-        self.tabStart.render(st)
-        self.tabService.render(st)
-
-        running = bool(st.get("external_running"))
-        sensors = st.get("sensors", {})
-        any_alarm = any(re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and v for k, v in sensors.items())
-
-        if running:
-                       # обновление вкладок
-            self.tabWork.render(st)
-            self.tabStart.render(st)
-            self.tabService.render(st)
-
-            # ----------------------------
-            # логика рамки
-            # ----------------------------
-            sensors = st.get("sensors", {}) or {}
-            any_alarm = any(
-                re.search(r"(alarm|emerg|fault|error|e_stop)", k, re.I) and bool(v)
-                for k, v in sensors.items()
-            )
-
-            cycle_active = bool(
-                st.get("cycle_busy") or
-                st.get("cycle_active") or
-                any(
-                    re.search(r"(pedal|emul|start_btn|cycle_running)", k, re.I) and bool(v)
-                    for k, v in sensors.items()
-                )
-            )
-
-            if any_alarm:
-                self.set_border("alarm")   # красная
-            elif cycle_active:
-                self.set_border("ok")      # зелёная
-            else:
-                self.set_border("idle")    # жёлтая
-
-
-            # если только что перешли в RUNNING — СНАЧАЛА переключимся на Work,
-            # а уже потом отключим вкладки, чтобы Qt не дёргал текущий индекс
-            running = bool(st.get("external_running"))
-            if not self._was_running and self.tabs.currentIndex() != 0:
-                self.tabs.blockSignals(True)              # чтобы не срабатывал check_service_tab
-                self.tabs.setCurrentIndex(0)
-                self.tabs.blockSignals(False)
-
-            # теперь блокируем Старт и Service
-            self.tabs.setTabEnabled(1, False)
-            svc_idx = self.tabs.indexOf(self.tabService)
-            if svc_idx != -1:
-                self.tabs.setTabEnabled(svc_idx, not running)
-
-        else:
-            self.tabs.setTabEnabled(1, True)
-            svc_idx = self.tabs.indexOf(self.tabService)
-            if svc_idx != -1:
-                self.tabs.setTabEnabled(svc_idx, not running)
-
+        # 8) Запомнить состояние RUNNING
         self._was_running = running
 
 
