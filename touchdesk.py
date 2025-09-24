@@ -330,87 +330,7 @@ class WorkTab(QWidget):
 
 
 
-class VirtualKeyboard(QFrame):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("vkRoot")
-        self.setWindowFlags(Qt.Tool | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
-        self.setParent(parent, Qt.Window)  # чтобы всегда быть поверх родительского окна
-        self.setFrameShape(QFrame.NoFrame)
-
-        self.target: QLineEdit | None = None
-        lay = QVBoxLayout(self); lay.setContentsMargins(10,10,10,10); lay.setSpacing(8)
-
-        # Минимальная раскладка
-        rows = [
-            list("1234567890"),
-            list("QWERTYUIOP"),
-            list("ASDFGHJKL"),
-            list("ZXCVBNM"),
-        ]
-        grid = QGridLayout(); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(6)
-        r = 0
-        for row in rows:
-            c = 0
-            for ch in row:
-                b = QPushButton(ch)
-                b.setFixedHeight(44)
-                b.clicked.connect(lambda _, x=ch: self._insert(x))
-                grid.addWidget(b, r, c); c += 1
-            r += 1
-        lay.addLayout(grid)
-
-        # нижний ряд
-        row = QHBoxLayout()
-        self.btnSpace = QPushButton("Space")
-        self.btnBack  = QPushButton("Backspace")
-        self.btnClear = QPushButton("Clear")
-        self.btnEnter = QPushButton("Enter")
-        for b in (self.btnSpace, self.btnBack, self.btnClear, self.btnEnter):
-            b.setFixedHeight(44); row.addWidget(b)
-        lay.addLayout(row)
-
-        self.btnSpace.clicked.connect(lambda: self._insert(" "))
-        self.btnBack.clicked.connect(self._backspace)
-        self.btnClear.clicked.connect(self._clear)
-        self.btnEnter.clicked.connect(self._enter)
-
-        self.setStyleSheet("""
-        #vkRoot { background:#141923; border:2px solid #2a3140; border-radius:12px; }
-        QPushButton { background:#2b3342; color:#e8edf8; border:1px solid #3a4356;
-                      border-radius:8px; padding:6px 10px; font-size:16px; }
-        QPushButton:pressed { background:#354159; }
-        """)
-
-        self.on_enter = None
-
-    def _insert(self, s): 
-        if self.target: self.target.insert(s)
-    def _backspace(self):
-        if self.target:
-            t = self.target.text()
-            if t: self.target.setText(t[:-1])
-    def _clear(self):
-        if self.target: self.target.clear()
-    def _enter(self):
-        self.hide()
-        if callable(self.on_enter): self.on_enter()
-
-    def show_for(self, line_edit: QLineEdit, parent_widget: QWidget):
-        self.target = line_edit
-        self.adjustSize()
-
-        g = parent_widget.frameGeometry()
-        kb_w = g.width() // 2          # половина ширины
-        kb_h = g.height() // 3         # высота, например, 1/3 экрана
-        x = g.x()                      # левый край
-        y = g.y() + g.height() - kb_h  # прижать к низу
-        self.setGeometry(x, y, kb_w, kb_h)
-        self.show()
-        self.raise_()                  # на самый верх
-
-
-from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout, QLabel # type: ignore
+#from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout, QLabel # type: ignore
 
 
 class ServiceTab(QWidget):
@@ -459,8 +379,8 @@ class ServiceTab(QWidget):
         send.addWidget(self.edSend, 1); send.addWidget(self.btnSend)
         sc.addLayout(send)
 
-        self.vkeyboard = VirtualKeyboard(self)
-        self.vkeyboard.on_enter = self.send_serial
+        #self.vkeyboard = VirtualKeyboard(self)
+        #self.vkeyboard.on_enter = self.send_serial
         self.edSend.installEventFilter(self)
         right.addWidget(self.serialCard, 1)
 
@@ -527,7 +447,7 @@ class ServiceTab(QWidget):
         if text:
             self.reader.write(text)
             self.edSend.clear()
-            self.vkeyboard.hide()
+            #self.vkeyboard.hide()
             self.edSend.clearFocus()
 
     def serial_opened(self, ok: bool):
@@ -582,13 +502,6 @@ class ServiceTab(QWidget):
                 w.setEnabled(not external)
             lblState.style().unpolish(lblState); lblState.style().polish(lblState)
     
-    def eventFilter(self, obj, event):
-        if obj is self.edSend:
-            if event.type() == QEvent.FocusIn:
-                self.vkeyboard.show_for(self.edSend, self)
-            elif event.type() == QEvent.FocusOut:
-                self.vkeyboard.hide()
-        return super().eventFilter(obj, event)
 
 
 class StartTab(QWidget):
