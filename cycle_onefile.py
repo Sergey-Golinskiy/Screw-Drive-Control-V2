@@ -164,9 +164,9 @@ def handle_area_trip(io: "IOController", ser) -> None:
     send_cmd(ser, "WORK")
     # событие
     try:
-        ev_alarm("AREA_TRIP", "Сработал защитный сенсор. Останов и WORK. Так делать не нужно.")
+        ev_alarm("AREA_TRIP", "Спрацював захисний сенсор. Зупинка. РУКИ ГЕТЬ.")
     except Exception:
-        print("[safety] AREA_SENSOR TRIP: останов и WORK")
+        print("[safety] AREA_SENSOR TRIP: Спрацював захисний сенсор. Зупинка. РУКИ ГЕТЬ.")
 
 
 # =====================[ IO КОНТРОЛЛЕР ]=======================
@@ -196,11 +196,11 @@ class IOController:
                 GPIO.add_event_detect(pin, GPIO.BOTH, callback=self._sensor_event, bouncetime=SENSOR_BOUNCE_MS)
                 self._last_state[name] = (GPIO.input(pin) == GPIO.LOW)
             except Exception as e:
-                print(f"[{ts()}] WARN: Edge detect failed on {name} (GPIO{pin}): {e}")
+                print(f"[{ts()}] ПОПЕРЕДЖЕННЯ: збоїло виявлення edge на {name} (GPIO{pin}): {e}")
                 edge_ok = False
 
         if not edge_ok:
-            print(f"[{ts()}] INFO: Switching to polling fallback for sensors.")
+            print(f"[{ts()}] ІНФО: Перехід на опитування (polling) датчиків.")
             self._use_poll_fallback = True
             for name, pin in SENSOR_PINS.items():
                 self._last_state[name] = (GPIO.input(pin) == GPIO.LOW)
@@ -208,7 +208,7 @@ class IOController:
             self._poll_thr = threading.Thread(target=self._poll_loop, daemon=True)
             self._poll_thr.start()
 
-        print(f"[{ts()}] IO init done. All relays OFF. Edge={'ON' if not self._use_poll_fallback else 'OFF/Polling'}")
+        print(f"[{ts()}] Ініціалізацію IO виконано. Усі реле OFF. Edge={'ON' if not self._use_poll_fallback else 'OFF/Polling'}")
 
     def cleanup(self):
         if getattr(self, "_use_poll_fallback", False):
@@ -252,7 +252,7 @@ class IOController:
         # просто печать изменений; логика цикла опрашивает синхронно
         for n, p in SENSOR_PINS.items():
             if p == ch_pin:
-                print(f"[{ts()}] SENSOR {n}: {'CLOSE' if self.sensor_state(n) else 'OPEN'}")
+                print(f"[{ts()}] ДАТЧИК {n}: {'CLOSE' if self.sensor_state(n) else 'OPEN'}")
                 break
 
     def _poll_loop(self):
@@ -300,7 +300,7 @@ def wait_ready(ser: serial.Serial, timeout: float = 5.0) -> bool:
         # допускаем разные регистры/пробелы
         if s.lower().replace("  ", " ").strip() == "ok ready":
             return True
-    print("[SER] TIMEOUT: не получили 'ok READY'")
+    print("[SER] TIMEOUT: не отримали 'ok READY'")
     return False
 
 
@@ -327,7 +327,7 @@ def wait_sensor(io: IOController, sensor_name: str, target_close: bool, timeout:
         if io.sensor_state(sensor_name) == target_close:
             return True
         if timeout is not None and (time.time() - start) > timeout:
-            print(f"[wait_sensor] TIMEOUT: {sensor_name} не достиг состояния {wanted} за {timeout} с")
+            print(f"[wait_sensor] TIMEOUT: {sensor_name} не досяг стану {wanted} за {timeout} с")
             return False
         time.sleep(0.01)
 
@@ -339,7 +339,7 @@ def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) ->
         if not io.sensor_state(sensor_name):  # OPEN
             break
         if timeout is not None and (time.time() - start) > timeout:
-            print(f"[wait_new_press] TIMEOUT: {sensor_name} не вернулась в OPEN")
+            print(f"[wait_new_press] TIMEOUT: {sensor_name} не повернувся в OPEN")
             return False
         time.sleep(0.01)
     # дождаться CLOSE
@@ -348,7 +348,7 @@ def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) ->
         if io.sensor_state(sensor_name):  # CLOSE
             return True
         if timeout is not None and (time.time() - start) > timeout:
-            print(f"[wait_new_press] TIMEOUT: {sensor_name} не нажата")
+            print(f"[wait_new_press] TIMEOUT: {sensor_name} не натиснута")
             return False
         time.sleep(0.01)
 
@@ -387,9 +387,9 @@ class StartTrigger:
             s.bind((self.host, self.port))
             s.listen(1)
             s.settimeout(0.5)
-            print(f"[trigger] LISTEN {self.host}:{self.port}")
+            print(f"[trigger] СЛУХАЮ {self.host}:{self.port}")
         except Exception as e:
-            print(f"[trigger] LISTEN FAILED on {self.host}:{self.port}: {e}")
+            print(f"[trigger] ПОМИЛКА СТАРТУ СЛУХАННЯ на {self.host}:{self.port}: {e}")
             return
 
         while not self._stop.is_set():
@@ -398,25 +398,25 @@ class StartTrigger:
             except socket.timeout:
                 continue
             except Exception as e:
-                print(f"[trigger] accept error: {e}")
+                print(f"[trigger] помилка accept: {e}")
                 continue
 
             with conn:
                 try:
                     data = conn.recv(64)
                     if data and b"START" in data.upper():
-                        print("[trigger] Получена команда START от UI")
+                        print("[trigger] Отримано команду START від UI")
                         self.event.set()
                         conn.sendall(b"OK\n")
                     else:
                         conn.sendall(b"ERR\n")
                 except Exception as e:
-                    print(f"[trigger] recv/send error: {e}")
+                    print(f"[trigger] помилка recv/send: {e}")
         try:
             s.close()
         except Exception:
             pass
-        print("[trigger] listener stopped")
+        print("[trigger] слухач зупинений")
 
 
 
@@ -454,20 +454,20 @@ def feed_until_detect(io: IOController) -> bool:
     while True:
         attempt += 1
         io.pulse("R01_PIT", ms=FEED_PULSE_MS)
-        ev_info("FEED_PULSE", "Импульс подачи", attempt=attempt, ms=FEED_PULSE_MS)
+        ev_info("FEED_PULSE", "Імпульс подачі", attempt=attempt, ms=FEED_PULSE_MS)
         if wait_close_pulse(io, "IND_SCRW", IND_PULSE_WINDOW_MS):
-            ev_info("FEED_OK", "Винт прошёл по IND_SCRW", attempts=attempt, window_ms=IND_PULSE_WINDOW_MS)
+            ev_info("FEED_OK", "Гвинт пройшов по IND_SCRW", attempts=attempt, window_ms=IND_PULSE_WINDOW_MS)
             return True
-        print("[feed] Нет импульса IND_SCRW, повторяю подачу...")
+        print("[feed] Немає імпульсу IND_SCRW, повторюю подачу...")
         if attempt >= 5:
-            ev_warn("FEED_RETRY", "Нет импульса IND_SCRW, повторяем", attempt=attempt)
+            ev_warn("FEED_RETRY", "Немає імпульсу IND_SCRW, повторюємо", attempt=attempt)
         if attempt >= 20:
-            ev_alarm("FEED_FAIL", "IND_SCRW не сработал за лимит попыток", attempts=attempt)
+            ev_alarm("FEED_FAIL", "IND_SCRW не спрацював за ліміт спроб", attempts=attempt)
             return False
 
 
 def torque_sequence(io: IOController) -> bool:
-    ev_info("TORQUE_BEGIN", "Начало закручивания по моменту")
+    ev_info("TORQUE_BEGIN", "Початок закручування за моментом")
     io.set_relay("R06_DI1_POT", True)
     io.set_relay("R04_C2", True)
     t0 = time.time()
@@ -475,7 +475,7 @@ def torque_sequence(io: IOController) -> bool:
     t_ok = None
     while True:
         if io.sensor_state("GER_C2_DOWN"):
-            ev_alarm("C2_DOWN", "Достигнут нижний конечник цилиндра")
+            ev_alarm("C2_DOWN", "Досягнуто нижній кінцевик циліндра")
             io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
             wait_sensor(io, "GER_C2_UP", True, 2.0)
             return False
@@ -486,7 +486,7 @@ def torque_sequence(io: IOController) -> bool:
         else:
             t_ok = None
         if (time.time()-t0) > TIMEOUT_SEC:
-            ev_err("TORQUE_TIMEOUT", f"Момент не достигнут за {TIMEOUT_SEC}s")
+            ev_err("TORQUE_TIMEOUT", f"Момент не досягнуто за {TIMEOUT_SEC}s")
             io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
             wait_sensor(io, "GER_C2_UP", True, 2.0)
             return False
@@ -496,7 +496,7 @@ def torque_sequence(io: IOController) -> bool:
     io.set_relay("R06_DI1_POT", False)
     wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
     io.pulse("R05_DI4_FREE", ms=FREE_BURST_MS)
-    ev_info("TORQUE_OK", "Момент достигнут, инструмент поднят", stable_ms=ok_stable_ms)
+    ev_info("TORQUE_OK", "Момент досягнуто, інструмент піднято", stable_ms=ok_stable_ms)
     return True
 
 
@@ -512,12 +512,12 @@ def torque_fallback(io: IOController):
 def load_devices_config(path: Path = DEFAULT_CFG) -> dict:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not data or "devices" not in data:
-        raise ValueError("devices.yaml: не найден список devices")
+        raise ValueError("devices.yaml: не знайдено список devices")
     # простая валидация
     by_key = {}
     for d in data["devices"]:
         if "key" not in d or "name" not in d or "program" not in d:
-            raise ValueError(f"devices.yaml: device не полон: {d}")
+            raise ValueError(f"devices.yaml: опис пристрою неповний: {d}")
         by_key[d["key"]] = d
     return by_key
 
@@ -527,24 +527,24 @@ def select_task(io: "IOController", task: int, ms: int = TASK_PULSE_MS):
     elif task == 1:
         io.pulse("R08_DI6_TSK1", ms=ms)
     else:
-        print(f"[task] unknown task={task}, пропускаю")
+        print(f"[task] невідома task={task}, пропускаю")
 
 def run_cycle(selected_key: str):
     # 1) выбрать устройство и программу
     devices = load_devices_config()
     dev = devices.get(selected_key)
     if not dev:
-        print(f"[err] device '{selected_key}' не найден в devices.yaml")
+        print(f"[err] device '{selected_key}' не знайдено в devices.yaml")
         return 1
 
     program = dev["program"]
-    print(f"[info] Устройство: {dev['name']} (holes={dev.get('holes')})")
+    print(f"[info] Пристрій: {dev['name']} (отвори={dev.get('holes')})")
 
     # 2) обычная твоя инициализация: GPIO, serial, ready, homing и т.д.
     io = IOController()
     ser = open_serial()
     if not wait_ready(ser):
-        print("[err] контроллер перемещений не готов")
+        print("[err] контролер переміщень не готовий")
         return 2
     send_cmd(ser, "G28")  # хоуминг, как у тебя
 
@@ -585,7 +585,7 @@ def run_cycle(selected_key: str):
     return 0
 
 def torque_sequence_with_area(io: "IOController", ser, area_armed: bool) -> bool:
-    ev_info("TORQUE_BEGIN", "Начало закручивания по моменту")
+    ev_info("TORQUE_BEGIN", "Початок закручування за моментом")
     io.set_relay("R06_DI1_POT", True)
     io.set_relay("R04_C2", True)
     t0 = time.time()
@@ -594,7 +594,7 @@ def torque_sequence_with_area(io: "IOController", ser, area_armed: bool) -> bool
     while True:
         # авария: нижний конечник
         if io.sensor_state("GER_C2_DOWN"):
-            ev_alarm("C2_DOWN", "Достигнут нижний конечник цилиндра")
+            ev_alarm("C2_DOWN", "Досягнуто нижній кінцевик циліндра")
             io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
             wait_sensor(io, "GER_C2_UP", True, 2.0)
             send_cmd(ser, "WORK")
@@ -615,7 +615,7 @@ def torque_sequence_with_area(io: "IOController", ser, area_armed: bool) -> bool
             t_ok = None
 
         if (time.time() - t0) > TIMEOUT_SEC:
-            ev_err("TORQUE_TIMEOUT", f"Момент не достигнут за {TIMEOUT_SEC}s")
+            ev_err("TORQUE_TIMEOUT", f"Момент не досягнуто за {TIMEOUT_SEC}s")
             io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
             wait_sensor(io, "GER_C2_UP", True, 2.0)
             send_cmd(ser, "WORK")
@@ -628,7 +628,7 @@ def torque_sequence_with_area(io: "IOController", ser, area_armed: bool) -> bool
     io.set_relay("R06_DI1_POT", False)
     wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC)
     io.pulse("R05_DI4_FREE", ms=FREE_BURST_MS)
-    ev_info("TORQUE_OK", "Момент достигнут, инструмент поднят", stable_ms=ok_stable_ms)
+    ev_info("TORQUE_OK", "Момент досягнуто, інструмент піднято", stable_ms=ok_stable_ms)
     return True
 
 
@@ -639,15 +639,15 @@ def main():
     parser.add_argument("--device", required=True, help="device key from devices.yaml")
     args = parser.parse_args()
 
-    ev_info("BOOT", "Cycle script started")
+    ev_info("BOOT", "Скрипт циклу запущено")
 
     devices = load_devices_config()
     dev = devices.get(args.device)
     if not dev:
-        print(f"[err] device '{args.device}' не найден в devices.yaml")
+        print(f"[err] device '{args.device}' не знайдено в devices.yaml")
         raise SystemExit(1)
     program = dev["program"]
-    print(f"[info] Устройство: {dev['name']} (holes={dev.get('holes')})")
+    print(f"[info] Пристрій: {dev['name']} (отвори={dev.get('holes')})")
 
     # 1) инициализация GPIO и триггера
     io = IOController()
@@ -655,9 +655,9 @@ def main():
     trg.start()
 
     # 2) открыть serial и проверить готовность контроллера
-    print(f"[{ts()}] Открываю сериал порт {SERIAL_PORT} @ {SERIAL_BAUD}")
+    print(f"[{ts()}] Відкриваю serial-порт {SERIAL_PORT} @ {SERIAL_BAUD}")
     ser = open_serial()
-    print(f"[{ts()}] Serial открыт")
+    print(f"[{ts()}] Serial відкрито")
 
     # СНАЧАЛА почистим входной буфер (если там был мусор/хвост от ресета)
     try:
@@ -667,7 +667,7 @@ def main():
 
     # ЖДЁМ БАННЕР ТОЛЬКО ОДИН РАЗ
     if not wait_ready(ser, timeout=5.0):
-        ev_err("READY_TIMEOUT", "Не дождались 'ok READY' от контроллера")
+        ev_err("READY_TIMEOUT", "Не дочекалися 'ok READY' від контролера")
         trg.stop()
         io.cleanup()
         try: ser.close()
@@ -679,7 +679,7 @@ def main():
     send_cmd(ser, "G28")   # хоуминг
     ev_info("HOME", "Хоуминг выполнен")
     send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
-    ev_info("WORK", "Система приведена в рабочий пресет")
+    ev_info("WORK", "Систему переведено у робочий пресет")
 
     # локальный хелпер перемещения (если у тебя есть глобальный move_xy — можешь использовать его)
     def _move_xy(ser_, x, y, f=None):
@@ -690,12 +690,12 @@ def main():
         while True:
             # ——— ожидание запуска ———
             set_cycle_busy(False)
-            print("[cycle] Жду педаль/START ...")
+            print("[cycle] Чекаю педаль/START ...")
             if not wait_pedal_or_command(io, trg):
-                ev_info("ABORT_IDLE", "Старт не получен — выхожу")
+                ev_info("ABORT_IDLE", "Старт не отримано — виходжу")
                 break
 
-            ev_info("CYCLE_START", "Старт цикла (педаль/команда)")
+            ev_info("CYCLE_START", "Старт циклу (педаль/команда)")
             set_cycle_busy(True)
 
             # ——— исполнение маршрута из devices.yaml ———
@@ -708,17 +708,17 @@ def main():
                 feed_val = int(f or MOVE_F)
 
                 # перемещение в точку шага
-                ev_info("MOVE", f"Переход X={x} Y={y}", x=float(x), y=float(y), f=feed_val)
+                ev_info("MOVE", f"Перехід X={x} Y={y}", x=float(x), y=float(y), f=feed_val)
                 _move_xy(ser, x, y, f)
 
                 # включаем контроль шторы после первой достигнутой точки
                 if not area_armed and idx == 0:
                     area_armed = True
-                    ev_info("AREA_ARM", "Контроль шторы активирован (с точки 1 и до конца серии)")
+                    ev_info("AREA_ARM", "Контроль штори активовано (з точки 1 і до кінця серії)")
 
                 # быстрый safety-чек сразу после перемещения
                 if area_armed and io.sensor_state("AREA_SENSOR"):
-                    ev_alarm("AREA_TRIP", "Сработал защитный сенсор. Останов и WORK. Так делать не нужно.")
+                    ev_alarm("AREA_TRIP", "Спрацював захисний сенсор. Зупинка. РУКИ ГЕТЬ.")
                     io.set_relay("R06_DI1_POT", False)
                     io.set_relay("R04_C2", False)
                     try: wait_sensor(io, "GER_C2_UP", True, 2.0)
@@ -735,7 +735,7 @@ def main():
 
                     # перед подачей — ещё раз safety
                     if area_armed and io.sensor_state("AREA_SENSOR"):
-                        ev_alarm("AREA_TRIP", "Сработал защитный сенсор перед подачей. Останов и WORK.")
+                        ev_alarm("AREA_TRIP", "Спрацював захисний сенсор перед подачею. Зупинка. РУКИ ГЕТЬ.")
                         io.set_relay("R06_DI1_POT", False)
                         io.set_relay("R04_C2", False)
                         try: wait_sensor(io, "GER_C2_UP", True, 2.0)
@@ -753,7 +753,7 @@ def main():
 
                     # перед закруткой — снова safety
                     if area_armed and io.sensor_state("AREA_SENSOR"):
-                        ev_alarm("AREA_TRIP", "Сработал защитный сенсор перед закруткой. Останов и WORK.")
+                        ev_alarm("AREA_TRIP", "Спрацював захисний сенсор перед закручуванням. Зупинка. РУКИ ГЕТЬ.")
                         io.set_relay("R06_DI1_POT", False)
                         io.set_relay("R04_C2", False)
                         try: wait_sensor(io, "GER_C2_UP", True, 2.0)
@@ -769,7 +769,7 @@ def main():
                         ok_torque = torque_sequence(io)
 
                     if not ok_torque:
-                        ev_err("TORQUE_FAIL", "Момент не достигнут/авария в процессе — останов и WORK")
+                        ev_err("TORQUE_FAIL", "Момент не досягнуто/аварія під час процесу — Зупинка. РУКИ ГЕТЬ.")
                         send_cmd(ser, "WORK")
                         abort = True
                         break
@@ -785,7 +785,7 @@ def main():
             if abort:
                 ev_info("CYCLE_ABORT", "Серия прервана аварией/ошибкой")
             else:
-                ev_info("CYCLE_DONE", "Серия шагов завершена")
+                ev_info("CYCLE_DONE", "Серію кроків завершено")
 
             set_cycle_busy(False)
 
@@ -794,8 +794,8 @@ def main():
             # break
 
     except KeyboardInterrupt:
-        print("[cycle] Прервано пользователем (Ctrl+C)")
-        ev_info("CYCLE", "Прервано пользователем")
+        print("[cycle] Перервано користувачем (Ctrl+C)")
+        ev_info("CYCLE", "Перервано користувачем")
     finally:
         trg.stop()
         try:
@@ -816,8 +816,8 @@ def main():
             ser.close()
         except Exception:
             pass
-        print("=== Остановлено. GPIO освобождены, serial закрыт ===")
-        ev_info("SHUTDOWN", "Остановлено, GPIO/serial закрыты")
+        print("=== Зупинено. GPIO звільнено, serial закрито ===")
+        ev_info("SHUTDOWN", "Зупинено, GPIO/serial закриті")
 
 if __name__ == "__main__":
     main()
