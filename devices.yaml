@@ -8,7 +8,6 @@ devices:
       - { type: "work",  x: 29, y: 52, f: 20000,  task: 0 }
       - { type: "work",  x: 139, y: 50.1, f: 20000,  task: 0 }
       - { type: "work",  x: 139, y: 109.1, f: 20000,  task: 0 }
-
   - key: "bracket_2holes"
     name: "Кронштейн 2 отверстия"
     holes: 2
