@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 TRIGGER_HOST = "127.0.0.1"
 TRIGGER_PORT = 8765
-
+from __future__ import annotations
 import time
 import threading
 from datetime import datetime
@@ -361,7 +361,7 @@ class StartTrigger:
 
 
 
-def wait_pedal_or_command(io: IOController, trg: "StartTrigger" | None = None) -> bool:
+def wait_pedal_or_command(io: IOController, trg: StartTrigger | None = None) -> bool:
     # первая фаза — дождаться OPEN (если педаль держат)
     while True:
         if not io.sensor_state("PED_START"):
