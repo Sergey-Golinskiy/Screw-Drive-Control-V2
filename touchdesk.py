@@ -592,6 +592,14 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.tabStart,  "START")    # idx 1
         tabs.addTab(self.tabService,"SERVICE")  # idx 2
 
+        # --- состояние показа сервис-вкладки ---
+        self.service_visible = True   # временно True, чтобы убрать корректно
+        self.service_unlocked = False
+        self.ped_hold_start = None    # время начала удержания педали (float|None)
+
+        # спрячем сервис сразу при старте
+        self.hide_service_tab()
+
         self.tabs = tabs
         self.tabs.currentChanged.connect(self.on_tab_changed)
         self.on_tab_changed(self.tabs.currentIndex())
@@ -627,6 +635,25 @@ class MainWindow(QMainWindow):
             size = screen.size()            # физическое разрешение фреймбуфера
             # фиксируем размер, чтобы layout не «догонял» что-то во время таб-свитча
             self.setFixedSize(size)
+    
+    def show_service_tab(self):
+        """Показать вкладку SERVICE (если скрыта)."""
+        if self.service_visible:
+            return
+        # вставим в конец (после WORK и START)
+        idx = self.tabs.addTab(self.tabService, "SERVICE")
+        self.tabs.setTabToolTip(idx, "Service & diagnostics")
+        self.service_visible = True
+
+    def hide_service_tab(self):
+        """Скрыть вкладку SERVICE (если показана)."""
+        idx = self.tabs.indexOf(self.tabService)
+        if idx != -1:
+            # если сейчас открыта — переключим на Work
+            if self.tabs.currentIndex() == idx:
+                self.tabs.setCurrentIndex(0)
+            self.tabs.removeTab(idx)
+        self.service_visible = False
 
     # Позиционирование рамки/бордера
     def set_border(self, state: str):
@@ -640,6 +667,42 @@ class MainWindow(QMainWindow):
         except Exception:
             self.set_border("alarm")
             return
+        
+        # --- управление видимостью SERVICE по условию ---
+        running = bool(st.get("external_running"))
+        sensors = st.get("sensors", {}) or {}
+        pedal_pressed = bool(sensors.get("PED_START"))  # CLOSE = True
+
+        if running:
+            # при запуске цикла — прячем сервис и сбрасываем «разблокирован»
+            if self.service_visible:
+                self.hide_service_tab()
+            self.service_unlocked = False
+            self.ped_hold_start = None
+        else:
+            # цикл не запущен — можно открыть сервис долгим удержанием педали
+            if not self.service_unlocked:
+                if pedal_pressed:
+                    if self.ped_hold_start is None:
+                        self.ped_hold_start = time.time()
+                    elif (time.time() - self.ped_hold_start) >= 3.0:
+                        # разблокировать и показать сервис до следующего старта цикла
+                        self.service_unlocked = True
+                        self.show_service_tab()
+                else:
+                    # отпустили педаль — сброс таймера удержания
+                    self.ped_hold_start = None
+            else:
+                # уже разблокировано: сервис должен быть виден
+                if not self.service_visible:
+                    self.show_service_tab()
+
+        # если где-то дальше у тебя была блокировка вкладок во время работы — оставь,
+        # только адресуйся по индексу SERVICE таба, если он виден
+        svc_idx = self.tabs.indexOf(self.tabService)
+        if svc_idx != -1:
+            self.tabs.setTabEnabled(svc_idx, not running)
+
 
         # обновление вкладок
         self.tabWork.render(st)
@@ -692,11 +755,15 @@ class MainWindow(QMainWindow):
 
             # теперь блокируем Старт и Service
             self.tabs.setTabEnabled(1, False)
-            self.tabs.setTabEnabled(2, False)
+            svc_idx = self.tabs.indexOf(self.tabService)
+            if svc_idx != -1:
+                self.tabs.setTabEnabled(svc_idx, not running)
 
         else:
             self.tabs.setTabEnabled(1, True)
-            self.tabs.setTabEnabled(2, True)
+            svc_idx = self.tabs.indexOf(self.tabService)
+            if svc_idx != -1:
+                self.tabs.setTabEnabled(svc_idx, not running)
 
         self._was_running = running
 
