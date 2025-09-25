@@ -28,7 +28,7 @@ header "Installing PyQt5 and graphics stack..."
 sudo apt install -y python3-pyqt5 libqt5gui5 libegl1-mesa libgles2-mesa libgbm1 libdrm2
 
 header "Installing project deps..."
-sudo apt install -y python3-serial python3-requests python3-flask python3-rpi.gpio python3-yaml git
+sudo apt install -y python3-serial python3-requests python3-flask python3-rpi.gpio python3-yaml git python3-evdev
 
 header "Adding user to groups gpio,dialout..."
 sudo newgrp gpio
