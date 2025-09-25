@@ -1,7 +1,7 @@
 # devices.yaml
 devices:
   - key: "MCO_4holes"
-    name: "MCO_Back_M3x10_4holes"
+    name: "MCO_Back_M3x10"
     holes: 4
     program:
       - { type: "free",  x: 29.5, y: 150, f: 30000 }
