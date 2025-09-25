@@ -86,10 +86,15 @@ fi
 
 header "Loading logo setup"
 sudo mkdir -p /opt/splash
+sudo mkdir -p /etc/systemd/system/SD_touchdesk.service.d
 sudo cp /home/screwdrive/Screw-Drive-Control-V2/splash.png /opt/splash/splash.png
 sudo systemctl disable plymouth-start.service plymouth-quit.service plymouth-quit-wait.service --now || true
+sudo cp /home/screwdrive/Screw-Drive-Control-V2/System/SD_touchdesk.service.d/override.conf /etc/systemd/system/SD_touchdesk.service.d/override.conf
 sudo cp /home/screwdrive/Screw-Drive-Control-V2/System/clear-splash.sh /opt/splash/clear-splash.sh
+sudo cp /home/screwdrive/Screw-Drive-Control-V2/System/show-splash.sh /opt/splash/show-splash.sh
 sudo chmod +x /opt/splash/clear-splash.sh
+sudo chmod +x /opt/splash/show-splash.sh
+
 sudo apt purge -y plymouth plymouth-themes
 sudo rm -rf /usr/share/plymouth || true
 sudo sed -i '/^disable_splash=/d' /boot/firmware/config.txt
