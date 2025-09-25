@@ -4,19 +4,19 @@ devices:
     name: "Motion Cam Outdoor"
     holes: 4
     program:
-      - { type: "free",  x: 29.5, y: 150, f: 30000 }
+      #- { type: "free",  x: 29.5, y: 150, f: 30000 }
       - { type: "work",  x: 29.5, y: 109, f: 30000,  task: 0 }
-      - { type: "free",  x: 29.5, y: 120, f: 30000 }
-      - { type: "free",  x: 138.5, y: 120, f: 30000 }
+      #- { type: "free",  x: 29.5, y: 120, f: 30000 }
+      #- { type: "free",  x: 138.5, y: 120, f: 30000 }
       - { type: "work",  x: 138.5, y: 110, f: 30000,  task: 0 }
-      - { type: "free",  x: 165, y: 110, f: 30000 }
-      - { type: "free",  x: 165, y: 52, f: 30000 }
+      #- { type: "free",  x: 165, y: 110, f: 30000 }
+      #- { type: "free",  x: 165, y: 52, f: 30000 }
       - { type: "work",  x: 138.5, y: 52, f: 30000,  task: 0 }
-      - { type: "free",  x: 138.5, y: 40, f: 30000 }
-      - { type: "free",  x: 29.5, y: 40, f: 30000 }
+      #- { type: "free",  x: 138.5, y: 40, f: 30000 }
+      #- { type: "free",  x: 29.5, y: 40, f: 30000 }
       - { type: "work",  x: 29.5, y: 53, f: 30000,  task: 0 }
-      - { type: "free",  x: 5, y: 53, f: 30000 }
-      - { type: "free",  x: 5, y: 100, f: 30000 }
+      #- { type: "free",  x: 5, y: 53, f: 30000 }
+      #- { type: "free",  x: 5, y: 100, f: 30000 }
   - key: "MCO_4holes_test"
     name: "MCO_not_working"
     holes: 2
