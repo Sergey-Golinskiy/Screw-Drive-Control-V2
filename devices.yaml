@@ -1,7 +1,7 @@
 # devices.yaml
 devices:
   - key: "MCO_4holes"
-    name: "Motion Cam Outdoor (M3x10)"
+    name: "MCO_Back (4holes-M3x10)"
     holes: 4
     program:
       - { type: "free",  x: 29.5, y: 150, f: 30000 }

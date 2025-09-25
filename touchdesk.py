@@ -588,7 +588,7 @@ class StartTab(QWidget):
         root.setSpacing(18)
 
         # --------- ЛЕВАЯ КОЛОНКА (≈30%) — Список устройств ----------
-        left = QVBoxLayout(); left.setSpacing(13)
+        left = QVBoxLayout(); left.setSpacing(12)
 
         self.devCard = make_card("Devices")
         card_lay = self.devCard.layout()
@@ -606,7 +606,7 @@ class StartTab(QWidget):
         left.addWidget(self.devCard)
 
         # --------- ПРАВАЯ КОЛОНКА (≈70%) — Кнопки START/STOP вертикально ----------
-        right = QVBoxLayout(); right.setSpacing(17)
+        right = QVBoxLayout(); right.setSpacing(18)
 
         self.btnStart = big_button("START program")
         #self.btnStop  = big_button("STOP program")
