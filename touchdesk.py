@@ -609,8 +609,8 @@ class StartTab(QWidget):
         right = QVBoxLayout(); right.setSpacing(18)
 
         self.btnStart = big_button("START program")
-        #self.btnStop  = big_button("STOP program")
-        #self.btnStop.setObjectName("stopButton")
+        self.btnStop  = big_button("STOP program")
+        self.btnStop.setObjectName("stopButton")
 
         # делаем кнопки побольше и с одинаковой высотой
         self.btnStart.setMinimumHeight(220)
