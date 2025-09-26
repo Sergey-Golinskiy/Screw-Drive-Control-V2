@@ -1,5 +1,3 @@
-//Рабочая версия 2024-06-10
-// XY_table/Arduino_xy_table/main.ino
 #include <AccelStepper.h>
 
 /* ===== RAMPS 1.4 pins (Mega2560) ===== */
