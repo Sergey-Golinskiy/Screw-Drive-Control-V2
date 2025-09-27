@@ -274,13 +274,14 @@ class WorkTab(QWidget):
         self.btnKill  = big_button("STOP script")
         # Блокируем педаль до «готовности»
         self.btnPedal.setEnabled(False)
+        self.lblPedalStatus = QLabel("Поле статусу...")
 
         # Лейбл статуса под кнопкой (в том же столбце)
         # Статус-бейдж под кнопкой: яркий и читаемый
         self.lblPedalStatus.setObjectName("statusBadge")
         self.lblPedalStatus.setAlignment(Qt.AlignCenter)
         self.lblPedalStatus.setWordWrap(True)
-        self.lblPedalStatus.setText("Выхожу в нули…")
+        #self.lblPedalStatus.setText("Выхожу в нули…")
 
         # Базовый стиль + варианты (цвет/фон) — можно править под бренд
         self.lblPedalStatus.setStyleSheet("""
@@ -317,6 +318,7 @@ class WorkTab(QWidget):
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
         root.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
+        root.setSpacing(10)
 
         #self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
         #root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
@@ -817,6 +819,7 @@ class MainWindow(QMainWindow):
 
         # Основной лэйаут (без логотипа!)
         root = QVBoxLayout(self.frame)
+        #root.setSpacing(10)
         root.setContentsMargins(BORDER_W, BORDER_W, BORDER_W, BORDER_W)
 
         # Вкладки
