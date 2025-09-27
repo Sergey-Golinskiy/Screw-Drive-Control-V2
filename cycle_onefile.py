@@ -7,13 +7,10 @@ from datetime import datetime
 import os
 from pathlib import Path
 import argparse, json
-from pathlib import Path
 import yaml
 from collections import deque
 import threading
 import json
-from pathlib import Path  # (если ещё не импортирован)
-import math
 from typing import Optional
 import RPi.GPIO as GPIO
 # ===[ ДОБАВЛЕНО: serial ]===
@@ -31,7 +28,7 @@ BUSY_FLAG = "/tmp/screw_cycle_busy"
 LAST_EXIT_PATH = Path("/tmp/last_exit.json")
 DEFAULT_CFG = Path(__file__).with_name("devices.yaml")
 TASK_PULSE_MS = 700  # п.7: импульс выбора задачи
-WORK_XY_FLAG_PATH = Path("/tmp/at_work_xy")  # флаг «стол в рабочей XY-точке»
+UI_STATUS_PATH = Path("/tmp/ui_status.json")
 EVENT_LOG_PATH = Path("/tmp/screw_events.jsonl")
 EVENT_BUFFER_SIZE = 200  # сколько последних событий держать в памяти
 
@@ -112,6 +109,18 @@ def ev_warn(code, msg, **kw):  STATUS.emit(code, "WARN",  msg, **kw)
 def ev_err(code, msg, **kw):   STATUS.emit(code, "ERROR", msg, **kw)
 def ev_alarm(code, msg, **kw): STATUS.emit(code, "ALARM", msg, **kw)
 
+
+def ui_status_update(**kv):
+    """Безопасно пишет статус для UI (одно место для всех статусов)."""
+    base = {"status_text": "", "can_tighten": False, "phase": ""}  # можно расширять
+    try:
+        if UI_STATUS_PATH.exists():
+            base.update(json.loads(UI_STATUS_PATH.read_text()))
+    except Exception:
+        pass
+    base.update(kv)
+    UI_STATUS_PATH.write_text(json.dumps(base, ensure_ascii=False))
+
 def write_exit_reason(code: str, msg: str, extra: dict | None = None):
     data = {"ts": ts(), "code": code, "msg": msg, "extra": extra or {}}
     try:
@@ -132,32 +141,6 @@ def set_cycle_busy(on: bool):
                 pass
     except Exception:
         pass
-
-def set_at_work_xy(on: bool):
-    """Установить/сбросить флаг «мы стоим в рабочей XY-точке»."""
-    try:
-        if on:
-            WORK_XY_FLAG_PATH.write_text("1")
-        else:
-            try:
-                WORK_XY_FLAG_PATH.unlink()
-            except FileNotFoundError:
-                pass
-    except Exception:
-        pass
-
-def schedule_at_work_flag(dist_mm: float, feed_mm_min: int, pad_s: float = 0.2):
-    """
-    Поставить флаг через оценочное время перемещения.
-    feed в F — мм/мин → t = (dist/feed)*60 + небольшой запас.
-    """
-    f = max(1, int(feed_mm_min or 1))
-    t = max(0.2, (dist_mm / f) * 60.0 + pad_s)
-    def _arm():
-        time.sleep(t)
-        set_at_work_xy(True)
-    threading.Thread(target=_arm, daemon=True).start()
-
 
 def is_port_open(host="127.0.0.1", port=8765, timeout=0.2) -> bool:
     try:
@@ -865,7 +848,6 @@ def main():
     args = parser.parse_args()
 
     ev_info("BOOT", "Скрипт циклу запущено")
-    set_at_work_xy(False)
 
     devices = load_devices_config()
     dev = devices.get(args.device)
@@ -943,9 +925,12 @@ def main():
     #    raise SystemExit(2)
     
     print("=== Старт скрипта ===")
+    ui_status_update(status_text="Виходжу в нулі...", can_tighten=False, phase="homing")
     send_cmd(ser, "G28")   # хоуминг
+    ui_status_update(status_text="Виходжу до оператора...", can_tighten=False, phase="to_operator")
     send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
     ev_info("WORK", "Систему переведено у робочий пресет")
+    
 
 
     # локальный хелпер перемещения (если у тебя есть глобальный move_xy — можешь использовать его)
@@ -957,13 +942,18 @@ def main():
         while True:
             # ——— ожидание запуска ———
             set_cycle_busy(False)
-            set_at_work_xy(False)
+            ui_status_update(
+            status_text="Готовий до роботи - покладіть девайс і натисніть старт",
+            can_tighten=True,
+            phase="ready"
+            )
             print("[cycle] Чекаю педаль/START ...")
             if not wait_pedal_or_command(io, trg):
                 ev_info("ABORT_IDLE", "Старт не отримано — виходжу")
                 break
 
             ev_info("CYCLE_START", "Старт циклу (педаль/команда)")
+            ui_status_update(status_text="Виконую цикл закручування, чекайте…", can_tighten=False, phase="running")
             set_cycle_busy(True)
 
             # ——— исполнение маршрута из devices.yaml ———

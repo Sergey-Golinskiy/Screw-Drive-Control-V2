@@ -7,6 +7,7 @@ import sys
 import os
 import signal
 import socket
+from pathlib import Path
 import json, yaml
 from pathlib import Path
 try:
@@ -21,7 +22,7 @@ from cycle_onefile import IOController, RELAY_PINS, SENSOR_PINS
 BUSY_FLAG = "/tmp/screw_cycle_busy"
 CFG_PATH = Path(__file__).with_name("devices.yaml")
 SELECTED_PATH = Path("/tmp/selected_device.json")
-
+UI_STATUS_PATH = Path("/tmp/ui_status.json")
 # ---------------------- Инициализация ----------------------
 app = Flask(__name__)
 
@@ -251,6 +252,16 @@ def api_select():
 @app.route("/api/config", methods=["GET"])
 def api_config():
     return jsonify({"devices": load_devices_list(), "selected": get_selected_key()})
+
+@app.get("/api/ui-status")
+def api_ui_status():
+    if UI_STATUS_PATH.exists():
+        try:
+            return json.loads(UI_STATUS_PATH.read_text())
+        except Exception:
+            pass
+    # дефолт — пока не готовы
+    return {"status_text": "Шось не те..", "can_tighten": False, "phase": "homing"}
 
 # ---------------------- UI ----------------------
 INDEX_HTML = """<!doctype html>

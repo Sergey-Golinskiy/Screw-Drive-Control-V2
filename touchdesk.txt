@@ -42,9 +42,6 @@ API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000/api")
 POLL_MS   = 1000
 BORDER_W  = 10
 
-# === NEW: единый источник статуса для UI ===
-UI_STATUS_PATH = Path("/tmp/ui_status.json")
-
 def send_start_trigger(host="127.0.0.1", port=8765, payload=b"START\n", timeout=0.5) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout) as s:
@@ -272,16 +269,9 @@ class WorkTab(QWidget):
         row = QHBoxLayout(); row.setSpacing(18)
         self.btnPedal = big_button("Tighten the screws (pedal emulation)")
         self.btnKill  = big_button("STOP script")
-        # Блокируем педаль до «готовности»
-        self.btnPedal.setEnabled(False)
-
-        # Лейбл статуса под кнопкой (в том же столбце)
-        self.lblPedalStatus = QLabel("Выхожу в нули…")
-        self.lblPedalStatus.setObjectName("state")
         self.btnKill.setObjectName("stopButton")
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
-        root.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
 
         self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
         root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
@@ -291,10 +281,6 @@ class WorkTab(QWidget):
 
     def on_pedal(self):
         try:
-            # Не даём эмулировать педаль до «готовности»
-            if not self.btnPedal.isEnabled():
-                self.stateLabel.setText("Not ready yet (homing/positioning).")
-                return
             # Проверим, запущен ли внешний процесс — чтобы не жать в пустоту
             running = False
             try:
@@ -342,30 +328,10 @@ class WorkTab(QWidget):
         except Exception as e:
             self.stateLabel.setText(f"Stop error: {e}")
 
-    def _read_ui_status_file(self) -> dict:
-    
-        try:
-            if UI_STATUS_PATH.exists():
-                return json.loads(UI_STATUS_PATH.read_text())
-        except Exception:
-            pass
-    # дефолт до готовности
-        return {"status_text": "Выхожу в нули…", "can_tighten": False, "phase": "homing"}
-
-    def _apply_ui_status(self, data: dict):
-        self.btnPedal.setEnabled(bool(data.get("can_tighten", False)))
-        self.lblPedalStatus.setText(data.get("status_text", "") or "")
-
-
     def render(self, st: dict):
         running = bool(st.get("external_running"))
         self.stateLabel.setText("Status: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
-        # === NEW: применим статус «готовности/хоминга» из /tmp/ui_status.json ===
-        try:
-            ui = self._read_ui_status_file()
-        except Exception:
-            ui = {"status_text": "Нет связи со статусом…", "can_tighten": False}
-        self._apply_ui_status(ui)
+
         # === НОВОЕ: подсветка «Эмуляции педали», пока цикл ЗАНЯТ между нажатиями ===
         busy = bool(st.get("cycle_busy"))
         # когда busy=True — делаем кнопку зелёной
