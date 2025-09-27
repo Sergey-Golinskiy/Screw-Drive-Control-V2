@@ -798,9 +798,9 @@ class StartTab(QWidget):
                 name = ""
                 if self._selected_key in self._device_buttons:
                     name = self._device_buttons[self._selected_key].text().splitlines()[0]
-                self.lblPedalStatus.setText(f"Ready. Selected device: {name}. You can start the program.")
+                self.lblPedalStatus.setText(f"Готово. Вибраний пристрій: {name}. Натисніть 'ПОЧАТИ РОБОТУ' для запуску програми.")
             else:
-                self.lblPedalStatus.setText("Select a device to enable Start.")
+                self.lblPedalStatus.setText("Оберіть девайс, та натисніть 'ПОЧАТИ РОБОТУ'.")
 
     
     def on_device_changed(self, idx: int):
