@@ -15,7 +15,6 @@ import json
 
 from typing import Optional
 import RPi.GPIO as GPIO
-
 # ===[ ДОБАВЛЕНО: serial ]===
 import serial
 try:
