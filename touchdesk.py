@@ -668,8 +668,8 @@ class StartTab(QWidget):
         self.txtEvents.setObjectName("eventsLog")
 
         # заголовок над логом (по желанию)
-        self.lblEventsTitle = QLabel("Останні події")
-        self.lblEventsTitle.setStyleSheet("font: 400 10pt 'Montserrat Light Alt1'; margin-top:15px; margin-bottom:4px;color: #FFFFFF;text-transform: capitalize;")
+        #self.lblEventsTitle = QLabel("Останні події")
+        #self.lblEventsTitle.setStyleSheet("font: 200 8pt 'Montserrat Light Alt1'; margin-top:8px; margin-bottom:2px;color: #FFFFFF;text-transform: capitalize;")
 
 # стиль самого лога
         self.txtEvents.setStyleSheet("""
@@ -679,7 +679,7 @@ QTextEdit#eventsLog {
     border: 1px solid #FFFFFF;
     border-radius: 8px;
     padding: 8px;
-    font: 8pt 'Montserrat Light Alt1';
+    font: 6pt 'Montserrat Light Alt1';
 }
         """)
 
