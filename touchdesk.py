@@ -272,36 +272,16 @@ class WorkTab(QWidget):
         row = QHBoxLayout(); row.setSpacing(18)
         self.btnPedal = big_button("Tighten the screws (pedal emulation)")
         self.btnKill  = big_button("STOP script")
-
-        # Сделаем внутри-кнопочный подзаголовок (rich-text)
-        self.btnPedal.setObjectName("btnPedal")
-        self.btnPedal.setMinimumHeight(96)  # чтобы хватало места на 2 строки
-        self.btnPedal.setEnabled(False)     # по умолчанию блокируем
-
-        # Небольшой стиль (центрирование и отступы)
-        self.btnPedal.setStyleSheet("""
-        QPushButton#btnPedal {
-            padding: 12px;
-            text-align: center;        /* текст по центру */
-        }
-        """)
-
-        # Сохраним «титул» кнопки один раз, статус будем менять динамически
-        self._pedal_title = "Tighten the screws (pedal emulation)"
-
-        # Поставим стартовый HTML-текст
-        self._set_pedal_text(self._pedal_title, "Выхожу в нули…")
-
         # Блокируем педаль до «готовности»
         self.btnPedal.setEnabled(False)
 
         # Лейбл статуса под кнопкой (в том же столбце)
-        ##self.lblPedalStatus = QLabel("Выхожу в нули…")
-        ##self.lblPedalStatus.setObjectName("state")
+        self.lblPedalStatus = QLabel("Выхожу в нули…")
+        self.lblPedalStatus.setObjectName("state")
         self.btnKill.setObjectName("stopButton")
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
-        ##root.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
+        root.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
 
         self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
         root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
@@ -314,7 +294,7 @@ class WorkTab(QWidget):
             # Не даём эмулировать педаль до «готовности»
             if not self.btnPedal.isEnabled():
                 self.stateLabel.setText("Not ready yet (homing/positioning).")
-                return
+            return
             # Проверим, запущен ли внешний процесс — чтобы не жать в пустоту
             running = False
             try:
@@ -362,21 +342,6 @@ class WorkTab(QWidget):
         except Exception as e:
             self.stateLabel.setText(f"Stop error: {e}")
 
-    def _set_pedal_text(self, title: str, status: str):
-        """Устанавливает HTML-текст внутри кнопки: заголовок + строка статуса ниже."""
-        html = f"""
-    <div>
-    <div style="font-size:14pt; font-weight:600; margin-bottom:4px;">
-        {title}
-    </div>
-    <div style="font-size:10.5pt; opacity:0.9;">
-        {status}
-    </div>
-    </div>
-    """.strip()
-        self.btnPedal.setText(html)  # QPushButton авто-распознает rich-text по тегам
-
-
     def _read_ui_status_file(self) -> dict:
     
         try:
@@ -395,16 +360,12 @@ class WorkTab(QWidget):
     def render(self, st: dict):
         running = bool(st.get("external_running"))
         self.stateLabel.setText("Status: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
-        # === NEW: применим статус к кнопке (и доступность)
+        # === NEW: применим статус «готовности/хоминга» из /tmp/ui_status.json ===
         try:
             ui = self._read_ui_status_file()
         except Exception:
             ui = {"status_text": "Нет связи со статусом…", "can_tighten": False}
-
-        self.btnPedal.setEnabled(bool(ui.get("can_tighten", False)))
-        self._set_pedal_text(self._pedal_title, ui.get("status_text", "") or "")
-
-
+        self._apply_ui_status(ui)
         # === НОВОЕ: подсветка «Эмуляции педали», пока цикл ЗАНЯТ между нажатиями ===
         busy = bool(st.get("cycle_busy"))
         # когда busy=True — делаем кнопку зелёной
