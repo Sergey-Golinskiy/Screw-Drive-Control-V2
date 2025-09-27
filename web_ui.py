@@ -7,8 +7,6 @@ import sys
 import os
 import signal
 import socket
-from pathlib import Path
-import json
 import json, yaml
 from pathlib import Path
 try:
@@ -23,7 +21,7 @@ from cycle_onefile import IOController, RELAY_PINS, SENSOR_PINS
 BUSY_FLAG = "/tmp/screw_cycle_busy"
 CFG_PATH = Path(__file__).with_name("devices.yaml")
 SELECTED_PATH = Path("/tmp/selected_device.json")
-EVENT_LOG_PATH = Path("/tmp/screw_events.jsonl")
+
 # ---------------------- Инициализация ----------------------
 app = Flask(__name__)
 
@@ -189,7 +187,7 @@ def api_status():
 def api_relay():
     # Блокируем ручное управление, если внешний скрипт запущен
     if ext_is_running() or io is None:
-        return jsonify({"error": "external_running", "message": "Запущено зовнішній скрипт — ручне керування тимчасово недоступне."}), 409
+        return jsonify({"error": "external_running", "message": "Запущен внешний скрипт — ручное управление временно недоступно."}), 409
 
     try:
         data = request.get_json(force=True)
@@ -229,24 +227,13 @@ def api_ext_stop():
     time.sleep(0.1)
     return jsonify(build_status())
 
-@app.route("/api/last_exit")
-def api_last_exit():
-    p = Path("/tmp/last_exit.json")
-    if p.exists():
-        try:
-            return jsonify({"ok": True, "data": json.loads(p.read_text(encoding="utf-8"))})
-        except Exception:
-            return jsonify({"ok": False, "err": "read_failed"})
-    return jsonify({"ok": True, "data": None})
-
-
 @app.route("/api/trigger/start", methods=["POST"])
 def api_trigger_start():
     if not ext_is_running():
-        return jsonify({"error":"not_running","message":"Зовнішній скрипт не запущено"}), 409
+        return jsonify({"error":"not_running","message":"Внешний скрипт не запущен"}), 409
     ok = send_start_trigger()
     if not ok:
-        return jsonify({"error":"connect","message":"Не вдалося відправити команду START у цикл"}), 502
+        return jsonify({"error":"connect","message":"Не удалось отправить команду START в цикл"}), 502
     # вернём свежий статус
     time.sleep(0.1)
     return jsonify(build_status())
@@ -265,30 +252,12 @@ def api_select():
 def api_config():
     return jsonify({"devices": load_devices_list(), "selected": get_selected_key()})
 
-@app.route("/api/events")
-def api_events():
-    limit = int(request.args.get("limit", "120"))
-    events = []
-    try:
-        lines = EVENT_LOG_PATH.read_text(encoding="utf-8").splitlines()
-        for ln in lines[-limit:]:
-            try:
-                events.append(json.loads(ln))
-            except Exception:
-                continue
-    except FileNotFoundError:
-        events = []
-    except Exception:
-        events = []
-    return jsonify({"events": events})
-
-
 # ---------------------- UI ----------------------
 INDEX_HTML = """<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>RPi IO Панель</title>
+<title>RPi IO Panel</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;margin:20px;line-height:1.4}
@@ -314,28 +283,27 @@ INDEX_HTML = """<!doctype html>
 </style>
 </head>
 <body>
-  <h1>RPi IO Панель</h1>
-  <div id="exitBanner" style="display:none;padding:8px;border-radius:8px;background:#ffd6d6;color:#7a0000;margin:8px 0;"></div>
+  <h1>RPi IO Panel</h1>
   <div class="small" id="statusTime"></div>
 
   <div class="row">
     <div class="card" style="flex:1">
-      <h3>Зовнішній скрипт: cycle_onefile.py</h3>
-      <div id="extState" class="muted">Статус: невідомо</div>
+      <h3>Внешний скрипт: cycle_onefile.py</h3>
+      <div id="extState" class="muted">Статус: неизвестно</div>
       <div class="controls" style="margin-top:8px">
         <select id="deviceSelect"></select>
-        <button id="btnExtStart" class="btn">Запустити</button>
-        <button id="btnExtStop"  class="btn">Зупинити</button>
-        <button id="btnCmdStart" class="btn">Надіслати START (команда)</button>
+        <button id="btnExtStart" class="btn">Start external</button>
+        <button id="btnExtStop"  class="btn">Stop external</button>
+        <button id="btnCmdStart" class="btn">Send START (command)</button>
       </div>
-<div class="muted">Перед запуском виберіть пристрій.</div>
-      <div class="muted" style="margin-top:8px">Коли зовнішній скрипт запущено, веб-панель не чіпає GPIO і ручне керування недоступне.</div>
+<div class="muted">Перед запуском выберите устройство.</div>
+      <div class="muted" style="margin-top:8px">Когда внешний скрипт запущен, веб-панель не трогает GPIO и ручное управление недоступно.</div>
     </div>
 
     <div class="card" style="flex:1">
       <h3>Датчики</h3>
       <table id="sensorsTbl">
-        <thead><tr><th>Назва</th><th>Стан</th></tr></thead>
+        <thead><tr><th>Имя</th><th>Состояние</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -343,33 +311,14 @@ INDEX_HTML = """<!doctype html>
     <div class="card" style="flex:1">
       <h3>Реле</h3>
       <table id="relaysTbl">
-        <thead><tr><th>Назва</th><th>Стан</th><th>Керування</th></tr></thead>
+        <thead><tr><th>Имя</th><th>Состояние</th><th>Управление</th></tr></thead>
         <tbody></tbody>
       </table>
-      <div class="muted">Якщо зовнішній скрипт запущено — кнопки будуть вимкнені.</div>
+      <div class="muted">Если внешний скрипт запущен — кнопки будут отключены.</div>
     </div>
   </div>
-<h3>Події</h3>
-<div id="events" class="events"></div>
-
-<style>
-  .events { max-height: 280px; overflow:auto; border:1px solid #ddd; border-radius:8px; padding:8px; font-family: ui-monospace,monospace; background:#fafafa;}
-  .ev { display:flex; gap:8px; padding:4px 0; border-bottom:1px dashed #eee; }
-  .ev .ts { color:#888; width:150px; flex:0 0 auto;}
-  .ev .lvl { width:70px; text-align:center; border-radius:6px; padding:0 6px; flex:0 0 auto;}
-  .ev .lvl.INFO { background:#eef; }
-  .ev .lvl.WARN { background:#ffeec2; }
-  .ev .lvl.ERROR { background:#ffd6d6; }
-  .ev .lvl.ALARM { background:#ffc6c6; font-weight:700;}
-  .ev .code { width:120px; color:#555; flex:0 0 auto;}
-  .ev .msg { flex:1; }
-</style>
-
-  
 
 <script>
-
-
 async function getStatus(){
   const res = await fetch('/api/status');
   if(!res.ok) throw new Error('status HTTP '+res.status);
@@ -386,7 +335,7 @@ async function postRelay(name, action, ms){
   });
   if(res.status===409){
     const data = await res.json();
-    alert(data.message || 'Зовнішній скрипт запущено. Ручне керування недоступне.');
+    alert(data.message || 'Внешний скрипт запущен. Ручное управление недоступно.');
     return null;
   }
   if(!res.ok) throw new Error('relay HTTP '+res.status);
@@ -404,7 +353,7 @@ async function postTriggerStart(){
   const res = await fetch('/api/trigger/start', {method:'POST'});
   if(res.status===409){
     const data = await res.json();
-    alert(data.message || 'Зовнішній скрипт не запущено');
+    alert(data.message || 'Внешний скрипт не запущен');
     return null;
   }
   if(!res.ok) throw new Error('trigger HTTP '+res.status);
@@ -418,7 +367,7 @@ async function loadConfig(){
   const sel = document.getElementById('deviceSelect');
   sel.innerHTML = '';
   const ph = document.createElement('option');
-  ph.value = ''; ph.textContent = '— виберіть пристрій —';
+  ph.value = ''; ph.textContent = '— выберите устройство —';
   sel.appendChild(ph);
   (data.devices || []).forEach(d=>{
     const o = document.createElement('option');
@@ -438,7 +387,7 @@ async function postSelect(key){
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({key})
   });
-  if(!res.ok){ alert('Не вдалося вибрати пристрій'); }
+  if(!res.ok){ alert('Не удалось выбрать устройство'); }
 }
 
 function renderExternal(isRunning, hasDevice){
@@ -451,7 +400,7 @@ function renderExternal(isRunning, hasDevice){
 }
 
 function render(data){
-  document.getElementById('statusTime').textContent = 'Оновлено: ' + data.time;
+  document.getElementById('statusTime').textContent = 'Обновлено: ' + data.time;
   renderExternal(!!data.external_running, !!data.selected_device);
 
   // sensors
@@ -494,25 +443,6 @@ function render(data){
   document.querySelectorAll('#relaysTbl button, #relaysTbl input').forEach(el=>{ el.disabled = disabled; });
 }
 
-async function loadLastExit(){
-  try{
-    const r = await fetch('/api/last_exit');
-    const j = await r.json();
-    const b = document.getElementById('exitBanner');
-    if (j.ok && j.data){
-      b.style.display = 'block';
-      const d = j.data;
-      b.textContent = `[${d.ts}] ${d.msg}`;
-    } else {
-      b.style.display = 'none';
-    }
-  }catch(e){
-    // молча
-  }
-}
-
-
-
 async function refresh(){
   try{
     const data = await getStatus();
@@ -526,8 +456,6 @@ async function cmd(name, action, ms){
   if(data) render(data);
 }
 
-let lastPopupTs = null;
-
 document.getElementById('deviceSelect').addEventListener('change', async (e)=>{
   const key = e.target.value || null;
   if(key){ await postSelect(key); }
@@ -537,61 +465,23 @@ document.getElementById('deviceSelect').addEventListener('change', async (e)=>{
 
 document.getElementById('btnExtStart').addEventListener('click', async ()=>{
   const sel = document.getElementById('deviceSelect').value;
-  if(!sel){ alert('Виберіть пристрій зі списку'); return; }
-  try{ render(await postExt('start')); }catch(e){ alert('Помилка запуску: '+e.message); }
+  if(!sel){ alert('Выберите устройство из списка'); return; }
+  try{ render(await postExt('start')); }catch(e){ alert('Ошибка запуска: '+e.message); }
 });
 document.getElementById('btnExtStop').addEventListener('click', async ()=>{
-  try{ render(await postExt('stop')); }catch(e){ alert('Помилка зупинки: '+e.message); }
+  try{ render(await postExt('stop')); }catch(e){ alert('Ошибка остановки: '+e.message); }
 });
 document.getElementById('btnCmdStart').addEventListener('click', async ()=>{
   try{
     const data = await postTriggerStart();
     if(data) render(data);
-  }catch(e){ alert('Помилка команди START: '+e.message); }
+  }catch(e){ alert('Ошибка команды START: '+e.message); }
 });
 
 window.addEventListener('load', async ()=>{
   await loadConfig();          // ← заполняем выпадающий список
   render(await getStatus());   // ← рисуем UI
-  await loadLastExit();       // ← рисуем баннер последнего выхода
   setInterval(refresh, 1000);
-});
-
-async function loadEvents(){
-  try{
-    const res = await fetch('/api/events?limit=120');
-    if(!res.ok) return;
-    const data = await res.json();
-    const box = document.getElementById('events');
-    box.innerHTML = '';
-    (data.events || []).forEach(ev=>{
-      const div = document.createElement('div');
-      div.className = 'ev';
-      div.innerHTML = `
-        <div class="ts">${ev.ts || ''}</div>
-        <div class="lvl ${ev.level || ''}">${ev.level || ''}</div>
-        <div class="code">${ev.code || ''}</div>
-        <div class="msg">${ev.msg || ''}</div>
-      `;
-      box.appendChild(div);
-    });
-    // Всплывашка при событиях с extra.popup === true (показаем один раз на ts)
-    const popupEv = (data.events || []).reverse().find(ev => ev && ev.extra && ev.extra.popup);
-    if (popupEv && popupEv.ts && popupEv.ts !== lastPopupTs) {
-      alert(popupEv.msg || 'Увага!');
-      lastPopupTs = popupEv.ts;
-    }
-    box.scrollTop = box.scrollHeight; // автоскролл вниз
-  }catch(e){ console.error(e); }
-}
-
-// в onload после твоих loadConfig()/render()
-window.addEventListener('load', async ()=>{
-  // у тебя уже есть: await loadConfig(); render(await getStatus());
-  await loadEvents();
-  await loadLastExit();
-  // периодические обновления:
-  setInterval(loadEvents, 1500);
 });
 </script>
 
