@@ -928,7 +928,7 @@ def main():
         ser.reset_input_buffer()
     except Exception:
         pass
-    time.sleep(5.0)
+    
     # ЖДЁМ БАННЕР ТОЛЬКО ОДИН РАЗ
     #if not wait_ready(ser, timeout=5.0):
      #   ev_err("READY_TIMEOUT", "Не дочекалися 'ok READY' від контролера")
@@ -950,6 +950,8 @@ def main():
 
     ev_info("READY_ALL_OK", "Отримали MOT_X_OK, MOT_Y_OK і ok READY — переходимо до G28")
     print("=== Старт скрипта === (перед G28)")
+
+    time.sleep(5.0)
 
     # 3) базовая инициализация координатной системы
     # 1.6 Хоуминг G28 и ожидание IN_HOME_POS / ok
