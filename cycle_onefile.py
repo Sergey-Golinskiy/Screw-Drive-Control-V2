@@ -226,12 +226,6 @@ class IOController:
     def set_relay(self, relay_name: str, on: bool):
         if relay_name not in RELAY_PINS:
             raise ValueError(f"Unknown relay '{relay_name}'")
-        if on:
-            for a, b in MUTEX_GROUPS:
-                if relay_name == a and self.relays.get(b, False):
-                    self._apply_relay(b, False)
-                if relay_name == b and self.relays.get(a, False):
-                    self._apply_relay(a, False)
         self._apply_relay(relay_name, on)
 
     def pulse(self, relay_name: str, ms: int):
