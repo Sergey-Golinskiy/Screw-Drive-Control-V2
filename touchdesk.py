@@ -276,8 +276,43 @@ class WorkTab(QWidget):
         self.btnPedal.setEnabled(False)
 
         # Лейбл статуса под кнопкой (в том же столбце)
-        self.lblPedalStatus = QLabel("Выхожу в нули…")
-        self.lblPedalStatus.setObjectName("state")
+        # Статус-бейдж под кнопкой: яркий и читаемый
+        self.lblPedalStatus.setObjectName("statusBadge")
+        self.lblPedalStatus.setAlignment(Qt.AlignCenter)
+        self.lblPedalStatus.setWordWrap(True)
+        self.lblPedalStatus.setText("Выхожу в нули…")
+
+        # Базовый стиль + варианты (цвет/фон) — можно править под бренд
+        self.lblPedalStatus.setStyleSheet("""
+        QLabel#statusBadge {
+            padding: 10px 14px;
+            border: 2px solid #679E3C;           /* брендовый зелёный */
+            border-radius: 12px;
+            background-color: rgba(103,158,60,0.12);
+            color: #111;
+            font: 700 13.5pt "Montserrat Light Alt1"; /* если нет шрифта — подхватится системный */
+            letter-spacing: 0.2px;
+        }
+
+        /* Фазовые варианты (подключаются в render через property 'variant') */
+        QLabel#statusBadge[variant="info"] {
+            border-color: #618234;
+            background-color: rgba(97,130,52,0.14);
+        }
+        QLabel#statusBadge[variant="success"] {
+            border-color: #679E3C;
+            background-color: rgba(103,158,60,0.18);
+        }
+        QLabel#statusBadge[variant="warning"] {
+            border-color: #564C26;
+            background-color: rgba(255,193,7,0.22);
+        }
+        QLabel#statusBadge[variant="danger"] {
+            border-color: #C0392B;
+            background-color: rgba(192,57,43,0.18);
+        }
+        """)
+
         self.btnKill.setObjectName("stopButton")
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
@@ -371,6 +406,9 @@ class WorkTab(QWidget):
         busy = bool(st.get("cycle_busy"))
         # когда busy=True — делаем кнопку зелёной
         self.btnPedal.setProperty("ok", busy)
+
+        for w in (self.btnPedal, self.btnKill):
+            w.style().unpolish(w); w.style().polish(w)
 
         # актуальность «Стоп скрипта» как раньше
         self.btnKill.setProperty("ok", running)
