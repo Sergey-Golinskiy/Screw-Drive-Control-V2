@@ -892,7 +892,11 @@ class MainWindow(QMainWindow):
             self.tabs.setTabEnabled(svc_idx, not running)
 
         # 7) Автопрыжок на WORK при переходе в RUNNING
-        if running and not self._was_running and self.tabs.currentIndex() != 0:
+        at_work = bool(
+        sensors.get("IN_WORK_POS") or
+        (sensors.get("PED_X_IN_POS") and sensors.get("PED_Y_IN_POS"))
+        )
+        if running and at_work and self.tabs.currentIndex() != 0:
             self.tabs.blockSignals(True)
             self.tabs.setCurrentIndex(0)
             self.tabs.blockSignals(False)
