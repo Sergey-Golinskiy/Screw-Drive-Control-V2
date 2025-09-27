@@ -297,23 +297,6 @@ def open_serial():
     ser.rts = False
     return ser
 
-def wait_ready(ser: serial.Serial, timeout: float = 5.0) -> bool:
-    """
-    Ждём строку 'ok READY' от прошивки Arduino.
-    Возвращает True при успехе, False при таймауте.
-    """
-    t_end = time.time() + timeout
-    while time.time() < t_end:
-        s = ser.readline().decode(errors="ignore").strip()
-        if not s:
-            continue
-        print(f"[SER] {s}")
-        # допускаем разные регистры/пробелы
-        if s.lower().replace("  ", " ").strip() == "ok ready":
-            return True
-    print("[SER] TIMEOUT: не отримали 'ok READY'")
-    return False
-
 def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 15.0) -> bool:
     """
     Ждём, пока прошивка пришлёт (в любом порядке):
@@ -701,61 +684,6 @@ def select_task(io: "IOController", task: int, ms: int = TASK_PULSE_MS):
     else:
         print(f"[task] невідома task={task}, пропускаю")
 
-def run_cycle(selected_key: str):
-    # 1) выбрать устройство и программу
-    devices = load_devices_config()
-    dev = devices.get(selected_key)
-    if not dev:
-        print(f"[err] device '{selected_key}' не знайдено в devices.yaml")
-        return 1
-
-    program = dev["program"]
-    print(f"[info] Пристрій: {dev['name']} (отвори={dev.get('holes')})")
-
-    # 2) обычная твоя инициализация: GPIO, serial, ready, homing и т.д.
-    io = IOController()
-    ser = open_serial()
-    if not wait_ready(ser):
-        print("[err] контролер переміщень не готовий")
-        return 2
-    send_cmd(ser, "G28")  # хоуминг, как у тебя
-
-    # 3) ожидание старта (педаль/команда START)
-    if not wait_pedal_or_command(io):   # твоя функция
-        return 3
-
-    # 4) основной маршрут по шагам
-    for step in program:
-        t = step.get("type", "free")
-        x = step["x"]; y = step["y"]
-        f = step.get("f")
-
-        move_xy(ser, x, y, f)  # твоя функция
-
-        if t == "work":
-            # (опционально) выбрать таску
-            if "task" in step:
-                select_task(io, int(step["task"]))
-                ev_info("TASK_SELECT", f"Выбрана таска {int(step['task'])}", task=int(step["task"]))
-
-
-            # подача винта до импульса IND_SCRW (твоя функция)
-            feed_until_detect(io)
-
-            # закручивание по моменту (твоя функция)
-            if not torque_sequence(io):
-                print("[err] момент не достигнут — аварийный выход")
-                move_xy(ser, 35, 20)  # безопасная позиция
-                break
-        # 'free' — просто проезд
-
-    # 5) финализация/очистка если нужно
-    try:
-        io.cleanup()
-    except Exception:
-        pass
-    return 0
-
 def torque_sequence_with_area(io: "IOController", ser, area_armed: bool) -> bool:
     ev_info("TORQUE_BEGIN", "Початок закручування за моментом")
     io.set_relay("R06_DI1_POT", True)
@@ -849,14 +777,19 @@ def main():
         # ev_err уже записан внутри, здесь — чистое завершение
         trg.stop()
         io.cleanup()
-        try: ser.close()
-        except Exception: pass
+        #try: ser.close()
+        #except Exception: pass
         raise SystemExit(2)
 
     # 3) базовая инициализация координатной системы
     print("=== Старт скрипта ===")
-    send_cmd(ser, "G28")   # хоуминг
-    ev_info("HOME", "Хоуминг выполнен")
+    try:
+        send_cmd(ser, "G28")
+        ev_info("HOME", "Хоумінг виконано")
+    except Exception as e:
+        ev_err("HOME_SEND_FAIL", f"Помилка при відправці G28: {e}", popup=True)
+        write_exit_reason("home_send_fail", f"Не вдалося надіслати G28: {e}", {})
+        raise
     send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
     ev_info("WORK", "Систему переведено у робочий пресет")
 
