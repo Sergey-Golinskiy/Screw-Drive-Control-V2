@@ -320,8 +320,8 @@ class WorkTab(QWidget):
         root.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
         root.setSpacing(10)
 
-        #self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
-        #root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
+        #self.lblPedalStatus = QLabel("Status: unknown"); self.lblPedalStatus.setObjectName("state")
+        #root.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
 
         self.btnPedal.clicked.connect(self.on_pedal)
         self.btnKill.clicked.connect(self.on_kill)
@@ -330,7 +330,7 @@ class WorkTab(QWidget):
         try:
             # Не даём эмулировать педаль до «готовности»
             if not self.btnPedal.isEnabled():
-                self.stateLabel.setText("Not ready yet (homing/positioning).")
+                self.lblPedalStatus.setText("Not ready yet (homing/positioning).")
                 return
             # Проверим, запущен ли внешний процесс — чтобы не жать в пустоту
             running = False
@@ -341,7 +341,7 @@ class WorkTab(QWidget):
                 pass
 
             if not running:
-                self.stateLabel.setText(
+                self.lblPedalStatus.setText(
                 'The script is not running. First, click "Start program" on the "Start" tab.'
                 )
                 return
@@ -354,9 +354,9 @@ class WorkTab(QWidget):
 
             ok = send_start_trigger_with_retry()
             if ok:
-                self.stateLabel.setText("START command sent (pedal emulation).")
+                self.lblPedalStatus.setText("START command sent (pedal emulation).")
             else:
-                self.stateLabel.setText("Failed to send START (no response from loop).")
+                self.lblPedalStatus.setText("Failed to send START (no response from loop).")
 
             # Обновим статус для подсветки кнопок
             try:
@@ -366,7 +366,7 @@ class WorkTab(QWidget):
                 pass
 
         except Exception as e:
-            self.stateLabel.setText(f"Error sending START: {e}")
+            self.lblPedalStatus.setText(f"Error sending START: {e}")
 
 
 
@@ -377,7 +377,7 @@ class WorkTab(QWidget):
             st = self.api.ext_stop()
             self.render(st)
         except Exception as e:
-            self.stateLabel.setText(f"Stop error: {e}")
+            self.lblPedalStatus.setText(f"Stop error: {e}")
 
     def _read_ui_status_file(self) -> dict:
     
@@ -397,7 +397,7 @@ class WorkTab(QWidget):
     def render(self, st: dict):
         running = bool(st.get("external_running"))
         #running = bool(st.get("external_running"))
-        #self.stateLabel.setText("Status: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
+        #self.lblPedalStatus.setText("Status: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
         # === NEW: применим статус «готовности/хоминга» из /tmp/ui_status.json ===
         try:
             ui = self._read_ui_status_file()
@@ -653,9 +653,9 @@ class StartTab(QWidget):
         right.addWidget(self.btnStop,  1)
 
         # подпись состояния
-        self.stateLabel = QLabel("Status: unknown"); 
-        self.stateLabel.setObjectName("state")
-        right.addWidget(self.stateLabel, 0, Qt.AlignLeft)
+        self.lblPedalStatus = QLabel("Status: unknown"); 
+        self.lblPedalStatus.setObjectName("state")
+        right.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
 
         # собрать две колонки в корневой лэйаут (30/70 через стили растяжения)
         root.addLayout(left, 3)
@@ -679,16 +679,16 @@ class StartTab(QWidget):
 
     def on_start(self):
         if not self._selected_key:
-            self.stateLabel.setText("Please select a device first.")
+            self.lblPedalStatus.setText("Please select a device first.")
             return
         try:
-            self.stateLabel.setText("Launching the program…")
+            self.lblPedalStatus.setText("Launching the program…")
             self.api.ext_start()
-            self.stateLabel.setText('The program is running. To begin working, click "START" on the Work tab.')
+            self.lblPedalStatus.setText('The program is running. To begin working, click "START" on the Work tab.')
             if callable(self.on_started):
                 self.on_started()
         except Exception as e:
-            self.stateLabel.setText(f"Failed to start the program: {e}")
+            self.lblPedalStatus.setText(f"Failed to start the program: {e}")
 
         # --- создание/перестройка списка устройств слева ---
     def _rebuild_devices(self, devices: list[dict]):
@@ -731,16 +731,16 @@ class StartTab(QWidget):
             self.api.select(key)
             self._selected_key = key
             self._apply_dev_styles()
-            self.stateLabel.setText(f"Selected device: {self._device_buttons[key].text().splitlines()[0]}")
+            self.lblPedalStatus.setText(f"Selected device: {self._device_buttons[key].text().splitlines()[0]}")
         except Exception as e:
-            self.stateLabel.setText(f"Failed to select device: {e}")
+            self.lblPedalStatus.setText(f"Failed to select device: {e}")
 
     def on_stop(self):
         try:
             data = self.api.ext_stop()
             self.render(data)
         except Exception as e:
-            self.stateLabel.setText(f"Stop error: {e}")
+            self.lblPedalStatus.setText(f"Stop error: {e}")
 
     def render(self, st: dict):
         running = bool(st.get("external_running"))
@@ -764,7 +764,7 @@ class StartTab(QWidget):
                     self._apply_dev_styles()
 
             except Exception as e:
-                self.stateLabel.setText(f"Config fetch error: {e}")
+                self.lblPedalStatus.setText(f"Config fetch error: {e}")
 
         # 2) доступность действий
         has_device = bool(self._selected_key)
@@ -777,15 +777,15 @@ class StartTab(QWidget):
 
         # 3) статус
         if running:
-            self.stateLabel.setText('The program is running. Go to WORK tab and press "START".')
+            self.lblPedalStatus.setText('The program is running. Go to WORK tab and press "START".')
         else:
             if has_device:
                 name = ""
                 if self._selected_key in self._device_buttons:
                     name = self._device_buttons[self._selected_key].text().splitlines()[0]
-                self.stateLabel.setText(f"Ready. Selected device: {name}. You can start the program.")
+                self.lblPedalStatus.setText(f"Ready. Selected device: {name}. You can start the program.")
             else:
-                self.stateLabel.setText("Select a device to enable Start.")
+                self.lblPedalStatus.setText("Select a device to enable Start.")
 
     
     def on_device_changed(self, idx: int):
@@ -798,9 +798,9 @@ class StartTab(QWidget):
         try:
             self.api.select(key)
             self._selected_key = key
-            self.stateLabel.setText(f"Selected device: {self.cmbDevices.currentText()}")
+            self.lblPedalStatus.setText(f"Selected device: {self.cmbDevices.currentText()}")
         except Exception as e:
-            self.stateLabel.setText(f"Failed to select device: {e}")
+            self.lblPedalStatus.setText(f"Failed to select device: {e}")
 
 
 
