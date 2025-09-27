@@ -684,6 +684,7 @@ def torque_sequence(io: IOController) -> bool:
     while True:
         if io.sensor_state("GER_C2_DOWN"):
             ev_alarm("C2_DOWN", "Досягнуто нижній кінцевик циліндра")
+            ui_status_update(status_text="Девайс не встановлено...", can_tighten=False, phase="error_c2_down")
             io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
             wait_sensor(io, "GER_C2_UP", True, 2.0)
             return False
@@ -695,6 +696,7 @@ def torque_sequence(io: IOController) -> bool:
             t_ok = None
         if (time.time()-t0) > TIMEOUT_SEC:
             ev_err("TORQUE_TIMEOUT", f"Момент не досягнуто за {TIMEOUT_SEC}s")
+            ui_status_update(status_text="Момент не досягнуто", can_tighten=False, phase="error_torque_timeout")
             io.set_relay("R04_C2", False); io.set_relay("R06_DI1_POT", False)
             wait_sensor(io, "GER_C2_UP", True, 2.0)
             return False
@@ -753,6 +755,7 @@ def run_cycle(selected_key: str):
     ser = open_serial()
     if not wait_ready(ser):
         print("[err] контролер переміщень не готовий")
+        ui_status_update(status_text="[err] контролер переміщень не готовий", can_tighten=False, phase="error_no_ready_controller")
         return 2
     send_cmd(ser, "G28")  # хоуминг, как у тебя
 
