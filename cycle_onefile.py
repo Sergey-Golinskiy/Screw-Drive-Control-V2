@@ -124,6 +124,7 @@ def ev_warn(code, msg, **kw):  STATUS.emit(code, "WARN",  msg, **kw)
 def ev_err(code, msg, **kw):   STATUS.emit(code, "ERROR", msg, **kw)
 def ev_alarm(code, msg, **kw): STATUS.emit(code, "ALARM", msg, **kw)
 
+
 def set_cycle_busy(on: bool):
     try:
         if on:

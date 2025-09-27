@@ -22,6 +22,8 @@
 #define Y_ALM_PIN 15
 #define Y_PED_PIN 18
 
+#define PED_X_ACTIVE_LOW 0
+#define PED_Y_ACTIVE_LOW 0
 
 /* ===== Relays (driver power) =====
    SERVO1(D4)=X, SERVO2(D5)=Y
@@ -35,8 +37,8 @@
 float STEPS_PER_MM_X = 11.111f;
 float STEPS_PER_MM_Y = 20.0f;
 
-float MAX_FEED_MM_S  = 200.0f;
-float MAX_ACC_MM_S2  = 20000.0f;
+float MAX_FEED_MM_S  = 1000.0f;
+float MAX_ACC_MM_S2  = 60000.0f;
 
 float X_MIN_MM = 0.0f, X_MAX_MM = 165.0f;
 float Y_MIN_MM = 0.0f, Y_MAX_MM = 350.0f;
@@ -82,6 +84,11 @@ bool AY_state=false, AY_lastRaw=false; uint32_t AY_tEdge=0; // Y_ALM
 bool PX_state=false, PX_lastRaw=false; uint32_t PX_tEdge=0; // X_PED
 bool PY_state=false, PY_lastRaw=false; uint32_t PY_tEdge=0; // Y_PED
 
+static inline bool rawActiveRead(uint8_t pin, bool activeLow){
+  int v = digitalRead(pin);
+  return activeLow ? (v==LOW) : (v==HIGH);
+}
+
 static inline bool debounceReadPin(uint8_t pin, bool &state, bool &lastRaw, uint32_t &tEdge){
   bool rawActive = (digitalRead(pin) == LOW); // active-LOW
   if (rawActive != lastRaw){ lastRaw = rawActive; tEdge = millis(); }
@@ -91,8 +98,16 @@ static inline bool debounceReadPin(uint8_t pin, bool &state, bool &lastRaw, uint
 
 inline bool alarmX(){ return debounceReadPin(X_ALM_PIN, AX_state, AX_lastRaw, AX_tEdge); }
 inline bool alarmY(){ return debounceReadPin(Y_ALM_PIN, AY_state, AY_lastRaw, AY_tEdge); }
-inline bool pedActiveX(){ return debounceReadPin(X_PED_PIN, PX_state, PX_lastRaw, PX_tEdge); } // ACTIVE=in position
-inline bool pedActiveY(){ return debounceReadPin(Y_PED_PIN, PY_state, PY_lastRaw, PY_tEdge); }
+inline bool pedActiveX(){ return debounceReadPinPol(X_PED_PIN, PED_X_ACTIVE_LOW, PX_state, PX_lastRaw, PX_tEdge); }
+inline bool pedActiveY(){ return debounceReadPinPol(Y_PED_PIN, PED_Y_ACTIVE_LOW, PY_state, PY_lastRaw, PY_tEdge); }
+
+static inline bool debounceReadPinPol(uint8_t pin, bool activeLow,
+                                      bool &state, bool &lastRaw, uint32_t &tEdge){
+  bool rawActive = rawActiveRead(pin, activeLow);
+  if (rawActive != lastRaw){ lastRaw = rawActive; tEdge = millis(); }
+  if ((uint32_t)(millis() - tEdge) > DEBOUNCE_MS) state = rawActive;
+  return state;
+}
 
 /* ===== Relays ===== */
 inline void relayWrite(uint8_t pin, bool on){
@@ -219,14 +234,26 @@ bool guardedMoveTo(float x_mm, float y_mm, float f_mm_min){
 
     bool moving = runStep(true);
 
-    if(trackX && !xPosPrinted && pedActiveX()){
-      if(!tHoldX) tHoldX = millis();
-      if(millis()-tHoldX >= PED_SETTLE_MS){ Serial.println(F("PED_X_IN_POS")); xPosPrinted=true; }
+    // X: удержание + сброс, если PED отпал до выдержки
+    if(trackX && !xPosPrinted){
+      if(pedActiveX()){
+        if(!tHoldX) tHoldX = millis();
+        if(millis()-tHoldX >= PED_SETTLE_MS){ Serial.println(F("PED_X_IN_POS")); xPosPrinted=true; }
+      } else {
+        tHoldX = 0; // сброс удержания
+      }
     }
-    if(trackY && !yPosPrinted && pedActiveY()){
-      if(!tHoldY) tHoldY = millis();
-      if(millis()-tHoldY >= PED_SETTLE_MS){ Serial.println(F("PED_Y_IN_POS")); yPosPrinted=true; }
+
+    // Y: удержание + сброс, если PED отпал до выдержки
+    if(trackY && !yPosPrinted){
+      if(pedActiveY()){
+        if(!tHoldY) tHoldY = millis();
+        if(millis()-tHoldY >= PED_SETTLE_MS){ Serial.println(F("PED_Y_IN_POS")); yPosPrinted=true; }
+      } else {
+        tHoldY = 0; // сброс удержания
+      }
     }
+
 
     if(!moving){
       if(trackX && !xPosPrinted){ Serial.println(F("PED_X_ERROR")); xErr=true; }
