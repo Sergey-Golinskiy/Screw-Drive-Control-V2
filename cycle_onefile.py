@@ -757,8 +757,8 @@ def main():
     # 2) Пневмо-прединициализация и выбор таски 0 (до открытия Serial и G28)
     if not ensure_pneumatics_and_task0(io):
     # Причина уже записана в ev_err + last_exit.json, просто выходим
-        trg.stop()
-        io.cleanup()
+        #trg.stop()
+        #io.cleanup()
         raise SystemExit(2)
 
     # 2) открыть serial и проверить готовность контроллера
