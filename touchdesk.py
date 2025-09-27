@@ -22,7 +22,7 @@ from PyQt5.QtGui import QPixmap # type: ignore
 from PyQt5.QtWidgets import ( # type: ignore
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QTabWidget, QLabel, QPushButton, QFrame, QComboBox, QLineEdit,
-    QTextEdit, QSpinBox, QSizePolicy, QScrollArea
+    QTextEdit, QSpinBox, QSizePolicy, QScrollArea, QMessageBox
 )
 
 # --- GPIO (Raspberry Pi) ---
@@ -72,6 +72,8 @@ def send_start_trigger_with_retry(host="127.0.0.1", port=8765, payload=b"START\n
             pass
         time.sleep(delay)
     return False
+
+
 
 # ================== HTTP ==================
 def get_local_ip() -> str:
@@ -163,6 +165,24 @@ class ApiClient:
     def events(self) -> dict:
         """GET /api/events -> {"events":[{ts, level, code, msg, ...}, ...]}"""
         return req_get("events")
+
+
+# --- NEW: локальный триггер для reset моторов ---
+def send_motor_reset_trigger_with_retry(host="127.0.0.1", port=8765,
+                                        timeout=0.5, retries=15, delay=0.2) -> bool:
+    payload = b"MOTOR_RESET\n"
+    for _ in range(retries):
+        try:
+            with socket.create_connection((host, port), timeout=timeout) as s:
+                s.sendall(payload)
+                s.settimeout(timeout)
+                resp = s.recv(64)
+                if b"OK" in (resp or b"").upper():
+                    return True
+        except Exception:
+            pass
+        time.sleep(delay)
+    return False
 
 
 # ================== Serial ==================
@@ -870,6 +890,15 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self); self.timer.setInterval(POLL_MS)
         self.timer.timeout.connect(self.refresh)
         self.timer.start()
+        # --- popup state ---
+        self._last_popup_ts = None
+        self._popup_showing = False  # чтобы не открыть два диалога разом
+
+        #   --- таймер опроса событий для глобальных pop-up ---
+        self.evTimer = QTimer(self)
+        self.evTimer.setInterval(1000)  # 1 секунда
+        self.evTimer.timeout.connect(self.check_popup_events)
+        self.evTimer.start()
 
         # Полноэкранный режим под тач
         self.showFullScreen()
@@ -879,6 +908,109 @@ class MainWindow(QMainWindow):
             # фиксируем размер, чтобы layout не «догонял» что-то во время таб-свитча
             self.setFixedSize(size)
     
+    def check_popup_events(self):
+    
+        if self._popup_showing:
+            return  # не реентеримся поверх уже показанного
+
+        try:
+            data = self.api.events() or {}
+            items = data.get("events", [])
+            if not items:
+                return
+
+        # находим последнее событие с extra.popup == true
+            last_popup = None
+            for ev in reversed(items):
+                extra = ev.get("extra", {}) or {}
+                if extra.get("popup"):
+                    last_popup = ev
+                    break
+
+            if not last_popup:
+                return
+
+            ts = last_popup.get("ts")
+            if ts and ts == self._last_popup_ts:
+                return  # уже показывали этот popup
+
+            # формируем текст
+            code = last_popup.get("code", "") or ""
+            msg  = last_popup.get("msg", "") or "Увага!"
+            extra = last_popup.get("extra", {}) or {}
+
+        # --- строим диалог ---
+            self._popup_showing = True
+            try:
+                m = QMessageBox(self)
+                m.setIcon(QMessageBox.Warning)
+                title = "Попередження"
+                if code:
+                    title = f"{code}"
+                m.setWindowTitle(title)
+                m.setText(msg)
+
+                # Делаем окно по-настоящему “поверх всех”
+                m.setWindowModality(Qt.ApplicationModal)
+                m.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+            # (опционально) убрать лишние кнопки:
+                buttons = QMessageBox.Ok
+                show_reset_btn = False
+
+            # Если это MOTOR_ALARM с запросом подтверждения
+                if code == "MOTOR_ALARM" and extra.get("requires_user_reset", False):
+                    m.setInformativeText("Мотор(и) в аварії. Потрібна перезагрузка і переініціалізація.")
+                    m.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+                    ok_btn = m.button(QMessageBox.Ok)
+                    ok_btn.setText("Виконати переініціалізацію")
+                    cancel_btn = m.button(QMessageBox.Cancel)
+                    cancel_btn.setText("Скасувати")
+                    show_reset_btn = True
+                else:
+                    m.setStandardButtons(QMessageBox.Ok)
+                ok_btn = m.button(QMessageBox.Ok)
+                ok_btn.setText("OK")
+
+            # Показать и поднять наверх
+                m.raise_()
+                m.activateWindow()
+                res = m.exec_()
+
+            # Обработать нажатие ресета для MOTOR_ALARM
+                if show_reset_btn and res == QMessageBox.Ok:
+                    if send_motor_reset_trigger_with_retry():
+                    # дадим пользователю фидбек
+                        ok2 = QMessageBox(self)
+                        ok2.setWindowTitle("Переініціалізація")
+                        ok2.setText("Команду на перезавантаження моторов надіслано.\nОчікуйте MOT_*_OK.")
+                        ok2.setWindowModality(Qt.ApplicationModal)
+                        ok2.setStandardButtons(QMessageBox.Ok)
+                        ok2.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+                        ok2.raise_(); ok2.activateWindow()
+                        ok2.exec_()
+                    else:
+                        er = QMessageBox(self)
+                        er.setWindowTitle("Помилка")
+                        er.setText("Не вдалося надіслати команду перезавантаження моторов.")
+                        er.setIcon(QMessageBox.Critical)
+                        er.setWindowModality(Qt.ApplicationModal)
+                        er.setStandardButtons(QMessageBox.Ok)
+                        er.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+                        er.raise_(); er.activateWindow()
+                        er.exec_()
+
+            # запомним, чтобы не дублировать этот же ts
+                self._last_popup_ts = ts
+
+            finally:
+                self._popup_showing = False
+
+        except Exception:
+        # молча: не роняем UI из-за сетевых огрехов
+            pass
+
+
+
     def show_service_tab(self):
         """Показать вкладку SERVICE (если скрыта)."""
         if self.service_visible:

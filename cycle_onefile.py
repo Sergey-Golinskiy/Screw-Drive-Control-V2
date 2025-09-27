@@ -1214,6 +1214,10 @@ def main():
         except Exception:
             pass
         try:
+            wd.stop()
+        except Exception:
+            pass
+        try:
             io.cleanup()
         except Exception:
             pass
