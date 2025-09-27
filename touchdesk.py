@@ -401,14 +401,28 @@ class WorkTab(QWidget):
             ui = self._read_ui_status_file()
         except Exception:
             ui = {"status_text": "Немає зв'язку зі статусом.", "can_tighten": False}
-        self._apply_ui_status(ui)
+        # Текст и доступность кнопки
+        self.lblPedalStatus.setText(ui.get("status_text", "") or "")
+        self.btnPedal.setEnabled(bool(ui.get("can_tighten", False)))
+
+        # Подсветка по фазе (homing/ready/running/alarm)
+        phase = (ui.get("phase") or "").lower()
+        variant = {
+            "homing":  "warning",
+            "ready":   "success",
+            "running": "info",
+            "alarm":   "danger",
+        }.get(phase, "info")
+
+        # Применяем вариант и «переполировываем» виджет, чтобы CSS селектор сработал
+        self.lblPedalStatus.setProperty("variant", variant)
+        self.lblPedalStatus.style().unpolish(self.lblPedalStatus)
+        self.lblPedalStatus.style().polish(self.lblPedalStatus)
+
         # === НОВОЕ: подсветка «Эмуляции педали», пока цикл ЗАНЯТ между нажатиями ===
         busy = bool(st.get("cycle_busy"))
         # когда busy=True — делаем кнопку зелёной
         self.btnPedal.setProperty("ok", busy)
-
-        for w in (self.btnPedal, self.btnKill):
-            w.style().unpolish(w); w.style().polish(w)
 
         # актуальность «Стоп скрипта» как раньше
         self.btnKill.setProperty("ok", running)
