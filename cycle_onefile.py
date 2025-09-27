@@ -847,9 +847,7 @@ def main():
     #time.sleep(1.0)
     if not wait_motors_ok_and_ready(ser, timeout=15.0):
         raise SystemExit(2)
-
-    ev_info("READY_ALL_OK", "Отримали MOT_X_OK, MOT_Y_OK і ok READY — переходимо до G28")
-    print("=== Старт скрипта === (перед G28)")
+    print("=== OK: X_OK + Y_OK + ok READY отримані ===")
 
     #time.sleep(5.0)
     time.sleep(1.0)
