@@ -272,6 +272,10 @@ class WorkTab(QWidget):
         row = QHBoxLayout(); row.setSpacing(18)
         self.btnPedal = big_button("ЗАКРУТИТИ ГВИНТИ")
         self.btnKill  = big_button("ЗУПИНИТИ")
+        # --- Лок-блокировка «один клик за цикл» ---
+        self._pedal_locked = False     # True = повторный клик запрещён
+        self._pedal_lock_t0 = 0.0      # когда залочили (секунды time.time())
+        self._pedal_lock_timeout = 120 # страховочный авто-анлок через N секунд
         # Блокируем педаль до «готовности»
         self.btnPedal.setEnabled(False)
         self.lblPedalStatus = QLabel("Поле статусу...")
@@ -357,6 +361,9 @@ QLabel#statusBadge[variant="danger"] {
             ok = send_start_trigger_with_retry()
             if ok:
                 self.lblPedalStatus.setText("START command sent (pedal emulation).")
+                self.btnPedal.setEnabled(False)         # мгновенно «гасим» кнопку
+                self._pedal_locked = True               # <— ставим лок
+                self._pedal_lock_t0 = time.time()
             else:
                 self.lblPedalStatus.setText("Failed to send START (no response from loop).")
 
@@ -401,6 +408,7 @@ QLabel#statusBadge[variant="danger"] {
         #running = bool(st.get("external_running"))
         #self.lblPedalStatus.setText("Status: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
         # === NEW: применим статус «готовности/хоминга» из /tmp/ui_status.json ===
+    
         try:
             ui = self._read_ui_status_file()
         except Exception:
@@ -422,6 +430,10 @@ QLabel#statusBadge[variant="danger"] {
         self.lblPedalStatus.setProperty("variant", variant)
         self.lblPedalStatus.style().unpolish(self.lblPedalStatus)
         self.lblPedalStatus.style().polish(self.lblPedalStatus)
+        if self._pedal_locked and can and (phase in ("ready", "")) and not busy:
+            self._pedal_locked = False
+
+
 
         # === НОВОЕ: подсветка «Эмуляции педали», пока цикл ЗАНЯТ между нажатиями ===
         busy = bool(st.get("cycle_busy"))
