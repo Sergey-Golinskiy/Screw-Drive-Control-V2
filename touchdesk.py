@@ -22,7 +22,7 @@ from PyQt5.QtGui import QPixmap # type: ignore
 from PyQt5.QtWidgets import ( # type: ignore
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QTabWidget, QLabel, QPushButton, QFrame, QComboBox, QLineEdit,
-    QTextEdit, QSpinBox, QSizePolicy, QScrollArea, QMessageBox
+    QTextEdit, QSpinBox, QSizePolicy, QScrollArea
 )
 
 # --- GPIO (Raspberry Pi) ---
@@ -72,8 +72,6 @@ def send_start_trigger_with_retry(host="127.0.0.1", port=8765, payload=b"START\n
             pass
         time.sleep(delay)
     return False
-
-
 
 # ================== HTTP ==================
 def get_local_ip() -> str:
@@ -161,28 +159,6 @@ class ApiClient:
     def select(self, key: str) -> dict:
         """POST /api/select {"key": key} -> {"ok":true, ...}"""
         return req_post("select", {"key": key})
-    
-    def events(self) -> dict:
-        """GET /api/events -> {"events":[{ts, level, code, msg, ...}, ...]}"""
-        return req_get("events")
-
-
-# --- NEW: локальный триггер для reset моторов ---
-def send_motor_reset_trigger_with_retry(host="127.0.0.1", port=8765,
-                                        timeout=0.5, retries=15, delay=0.2) -> bool:
-    payload = b"MOTOR_RESET\n"
-    for _ in range(retries):
-        try:
-            with socket.create_connection((host, port), timeout=timeout) as s:
-                s.sendall(payload)
-                s.settimeout(timeout)
-                resp = s.recv(64)
-                if b"OK" in (resp or b"").upper():
-                    return True
-        except Exception:
-            pass
-        time.sleep(delay)
-    return False
 
 
 # ================== Serial ==================
@@ -296,21 +272,8 @@ class WorkTab(QWidget):
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
 
-        # строка статуса: слева статус, справа последнее событие
-        statusRow = QHBoxLayout(); statusRow.setSpacing(12)
-        self.stateLabel = QLabel("Status: unknown")
-        self.stateLabel.setObjectName("state")
-        self.lastEventLabel = QLabel("—")      # последнее событие (без времени)
-        self.lastEventLabel.setObjectName("lastEvent")
-        self.lastEventLabel.setMinimumWidth(260)
-        self.lastEventLabel.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        statusRow.addWidget(self.stateLabel, 1, Qt.AlignLeft)
-        statusRow.addWidget(self.lastEventLabel, 0, Qt.AlignRight)
-        root.addLayout(statusRow, 0)
-
-        # таймерное состояние для опроса событий со старта
-        self._last_event_refresh_ts = 0.0
-
+        self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
+        root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
 
         self.btnPedal.clicked.connect(self.on_pedal)
         self.btnKill.clicked.connect(self.on_kill)
@@ -435,20 +398,6 @@ class ServiceTab(QWidget):
         #self.edSend.installEventFilter(self)
         right.addWidget(self.serialCard, 1)
 
-        # --- Новая карточка: События ---
-        self.eventsCard = make_card("Події")
-        ev_layout = self.eventsCard.layout()
-
-        self.eventsText = QTextEdit()
-        self.eventsText.setObjectName("eventsText")
-        self.eventsText.setReadOnly(True)
-        self.eventsText.setMinimumHeight(220)
-        ev_layout.addWidget(self.eventsText)
-
-        right.addWidget(self.eventsCard, 0)
-        # таймерное состояние для опроса событий
-        self._events_refresh_ts = 0.0
-
         root.addLayout(left, 2)
         root.addLayout(right, 1)
 
@@ -556,32 +505,6 @@ class ServiceTab(QWidget):
             self._relay_widgets.clear()
             for i, name in enumerate(relay_names):
                 self._relay_cell(i, name)
-
-         # --- События (ленивый опрос раз в ~1.5с) ---
-        now = time.monotonic()
-        if (now - getattr(self, "_events_refresh_ts", 0.0)) >= 1.5:
-            self._events_refresh_ts = now
-            try:
-                data = self.api.events() or {}
-                items = data.get("events", [])[-100:]  # последние 100
-                # соберём компактные строки: [ts] LEVEL code: msg
-                lines = []
-                for e in items:
-                    ts  = e.get("ts", "")
-                    lvl = (e.get("level", "") or "").upper()
-                    code = e.get("code", "")
-                    msg = e.get("msg", "")
-                    if code:
-                        lines.append(f"[{ts}] {lvl} {code}: {msg}")
-                    else:
-                        lines.append(f"[{ts}] {lvl}: {msg}")
-                self.eventsText.setPlainText("\n".join(lines))
-                # автопрокрутка вниз
-                sb = self.eventsText.verticalScrollBar()
-                sb.setValue(sb.maximum())
-            except Exception as ex:
-                # не шумим в UI, просто мягко пропускаем тик
-                pass       
 
         external = bool(st.get("external_running"))
         for name, widgets in self._relay_widgets.items():
@@ -773,34 +696,6 @@ class StartTab(QWidget):
                 self.stateLabel.setText(f"Ready. Selected device: {name}. You can start the program.")
             else:
                 self.stateLabel.setText("Select a device to enable Start.")
-        
-        # --- Последнее событие (ленивый опрос раз в ~1.5с) ---
-        now = time.monotonic()
-        if (now - getattr(self, "_last_event_refresh_ts", 0.0)) >= 1.5:
-            self._last_event_refresh_ts = now
-            try:
-                data = self.api.events() or {}
-                items = data.get("events", [])
-                if items:
-                    e = items[-1]  # последнее
-                    lvl  = (e.get("level", "") or "").upper()
-                    code = e.get("code", "") or ""
-                    msg  = e.get("msg", "") or ""
-                    # без времени — только LEVEL / CODE / MSG
-                    if code:
-                        txt = f"{lvl} {code}: {msg}" if lvl else f"{code}: {msg}"
-                    else:
-                        txt = f"{lvl}: {msg}" if lvl else msg
-                    # чуть укоротим, чтобы не разъезжался интерфейс
-                    if len(txt) > 120:
-                        txt = txt[:117] + "..."
-                    self.lastEventLabel.setText(txt or "—")
-                else:
-                    self.lastEventLabel.setText("—")
-            except Exception:
-                # не шумим в UI, просто оставим предыдущий текст
-                pass
-
 
     
     def on_device_changed(self, idx: int):
@@ -845,7 +740,7 @@ class MainWindow(QMainWindow):
         self.tabService = ServiceTab(self.api)
 
         tabs.addTab(self.tabWork,   "WORK")     # idx 0
-        tabs.addTab(self.tabStart,  "PARAM")    # idx 1
+        tabs.addTab(self.tabStart,  "START")    # idx 1
         tabs.addTab(self.tabService,"SERVICE")  # idx 2
 
         
@@ -890,15 +785,6 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self); self.timer.setInterval(POLL_MS)
         self.timer.timeout.connect(self.refresh)
         self.timer.start()
-        # --- popup state ---
-        self._last_popup_ts = None
-        self._popup_showing = False  # чтобы не открыть два диалога разом
-
-        #   --- таймер опроса событий для глобальных pop-up ---
-        self.evTimer = QTimer(self)
-        self.evTimer.setInterval(1000)  # 1 секунда
-        self.evTimer.timeout.connect(self.check_popup_events)
-        self.evTimer.start()
 
         # Полноэкранный режим под тач
         self.showFullScreen()
@@ -908,109 +794,6 @@ class MainWindow(QMainWindow):
             # фиксируем размер, чтобы layout не «догонял» что-то во время таб-свитча
             self.setFixedSize(size)
     
-    def check_popup_events(self):
-    
-        if self._popup_showing:
-            return  # не реентеримся поверх уже показанного
-
-        try:
-            data = self.api.events() or {}
-            items = data.get("events", [])
-            if not items:
-                return
-
-        # находим последнее событие с extra.popup == true
-            last_popup = None
-            for ev in reversed(items):
-                extra = ev.get("extra", {}) or {}
-                if extra.get("popup"):
-                    last_popup = ev
-                    break
-
-            if not last_popup:
-                return
-
-            ts = last_popup.get("ts")
-            if ts and ts == self._last_popup_ts:
-                return  # уже показывали этот popup
-
-            # формируем текст
-            code = last_popup.get("code", "") or ""
-            msg  = last_popup.get("msg", "") or "Увага!"
-            extra = last_popup.get("extra", {}) or {}
-
-        # --- строим диалог ---
-            self._popup_showing = True
-            try:
-                m = QMessageBox(self)
-                m.setIcon(QMessageBox.Warning)
-                title = "Попередження"
-                if code:
-                    title = f"{code}"
-                m.setWindowTitle(title)
-                m.setText(msg)
-
-                # Делаем окно по-настоящему “поверх всех”
-                m.setWindowModality(Qt.ApplicationModal)
-                m.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-            # (опционально) убрать лишние кнопки:
-                buttons = QMessageBox.Ok
-                show_reset_btn = False
-
-            # Если это MOTOR_ALARM с запросом подтверждения
-                if code == "MOTOR_ALARM" and extra.get("requires_user_reset", False):
-                    m.setInformativeText("Мотор(и) в аварії. Потрібна перезагрузка і переініціалізація.")
-                    m.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
-                    ok_btn = m.button(QMessageBox.Ok)
-                    ok_btn.setText("Виконати переініціалізацію")
-                    cancel_btn = m.button(QMessageBox.Cancel)
-                    cancel_btn.setText("Скасувати")
-                    show_reset_btn = True
-                else:
-                    m.setStandardButtons(QMessageBox.Ok)
-                ok_btn = m.button(QMessageBox.Ok)
-                ok_btn.setText("OK")
-
-            # Показать и поднять наверх
-                m.raise_()
-                m.activateWindow()
-                res = m.exec_()
-
-            # Обработать нажатие ресета для MOTOR_ALARM
-                if show_reset_btn and res == QMessageBox.Ok:
-                    if send_motor_reset_trigger_with_retry():
-                    # дадим пользователю фидбек
-                        ok2 = QMessageBox(self)
-                        ok2.setWindowTitle("Переініціалізація")
-                        ok2.setText("Команду на перезавантаження моторов надіслано.\nОчікуйте MOT_*_OK.")
-                        ok2.setWindowModality(Qt.ApplicationModal)
-                        ok2.setStandardButtons(QMessageBox.Ok)
-                        ok2.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-                        ok2.raise_(); ok2.activateWindow()
-                        ok2.exec_()
-                    else:
-                        er = QMessageBox(self)
-                        er.setWindowTitle("Помилка")
-                        er.setText("Не вдалося надіслати команду перезавантаження моторов.")
-                        er.setIcon(QMessageBox.Critical)
-                        er.setWindowModality(Qt.ApplicationModal)
-                        er.setStandardButtons(QMessageBox.Ok)
-                        er.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-                        er.raise_(); er.activateWindow()
-                        er.exec_()
-
-            # запомним, чтобы не дублировать этот же ts
-                self._last_popup_ts = ts
-
-            finally:
-                self._popup_showing = False
-
-        except Exception:
-        # молча: не роняем UI из-за сетевых огрехов
-            pass
-
-
-
     def show_service_tab(self):
         """Показать вкладку SERVICE (если скрыта)."""
         if self.service_visible:
@@ -1163,13 +946,6 @@ APP_QSS = f"""
 #rootFrame[state="ok"]    {{ border: {BORDER_W}px solid #1ac06b; }}
 #rootFrame[state="idle"]  {{ border: {BORDER_W}px solid #f0b400; }}
 #rootFrame[state="alarm"] {{ border: {BORDER_W}px solid #e5484d; }}
-
-QTextEdit#eventsText {{ font-size: 14px; }}
-
-#lastEvent {{
-    color: #9aa7be; 
-    font-size: 14px; 
-}}
 
 #devButton {{
     font-size: 20px; 
