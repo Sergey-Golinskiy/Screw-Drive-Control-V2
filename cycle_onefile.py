@@ -36,7 +36,7 @@ TRIGGER_PORT = 8765
 # =====================[ КОНФИГ ]=====================
 RELAY_ACTIVE_LOW = True  # твоя 8-релейка, как правило, LOW-trigger
 BUSY_FLAG = "/tmp/screw_cycle_busy"
-
+LAST_EXIT_PATH = "/tmp/last_exit.json"
 DEFAULT_CFG = Path(__file__).with_name("devices.yaml")
 TASK_PULSE_MS = 700  # п.7: импульс выбора задачи
 
@@ -127,6 +127,13 @@ def ev_warn(code, msg, **kw):  STATUS.emit(code, "WARN",  msg, **kw)
 def ev_err(code, msg, **kw):   STATUS.emit(code, "ERROR", msg, **kw)
 def ev_alarm(code, msg, **kw): STATUS.emit(code, "ALARM", msg, **kw)
 
+def write_exit_reason(code: str, msg: str, extra: dict | None = None):
+    data = {"ts": ts(), "code": code, "msg": msg, "extra": extra or {}}
+    try:
+        with open(LAST_EXIT_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"[{ts()}] WARN: cannot write {LAST_EXIT_PATH}: {e}")
 
 def set_cycle_busy(on: bool):
     try:
@@ -392,39 +399,53 @@ def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) ->
 
 def ensure_pneumatics_and_task0(io: "IOController") -> bool:
     """
-    1.1 Проверяем начальные состояния герконов:
-        GER_C2_UP = CLOSE и GER_C2_DOWN = CLOSE.
-        Если не так — пишем событие и просим оператора проверить пневматику.
-    1.2 Прогоняем цилиндр вниз/вверх (R04_C2): вниз до CLOSE на GER_C2_DOWN, затем вверх до CLOSE на GER_C2_UP.
-    1.3 Даём импульс R07_DI5_TSK0 на 500 мс (выбор таски 0).
+    Новая логика:
+      1) Проверяем начальные состояния:
+         GER_C2_UP == CLOSE (True) И GER_C2_DOWN == OPEN (False).
+         Если не так — popup + фиксируем причину и выходим.
+      2) Прогоняем цилиндр вниз (до GER_C2_DOWN=CLOSE), затем вверх (до GER_C2_UP=CLOSE).
+      3) Импульс выбора таски 0 (R07_DI5_TSK0) на 500 мс.
     """
-    up = io.sensor_state("GER_C2_UP")      # True = CLOSE
-    down = io.sensor_state("GER_C2_DOWN")  # True = CLOSE
+    up  = io.sensor_state("GER_C2_UP")      # True = CLOSE
+    down= io.sensor_state("GER_C2_DOWN")    # True = CLOSE
 
-    if not (up and down):
-        # popup=True — чтобы UI мог показать всплывающее окно (см. правку в web_ui.py)
-        ev_err("PNEUMATICS_CHECK", "Перевірте пневматику: потрібні CLOSE на GER_C2_UP та GER_C2_DOWN перед стартом",
-               up=up, down=down, popup=True)
+    # ⬇️ ТРЕБУЕМ UP=CLOSE (True) и DOWN=OPEN (False)
+    if not (up is True and down is False):
+        msg = ("Перевірте пневматику: на старті очікуємо GER_C2_UP=CLOSE, "
+               "GER_C2_DOWN=OPEN. Скрипт зупинено.")
+        ev_err("PNEUMATICS_NOT_READY", msg, popup=True, expect_up=True, expect_down=False,
+               actual_up=up, actual_down=down)
+        write_exit_reason("pneumatics_not_ready", msg,
+                          {"expect_up": True, "expect_down": False,
+                           "actual_up": up, "actual_down": down})
         return False
-    ev_info("PNEUMATICS_OK", "Пневматика: початковий стан валідний (UP=CLOSE, DOWN=CLOSE)")
 
-    # 1.2 Вниз
+    ev_info("PNEUMATICS_START_OK", "Стартові стани валідні (UP=CLOSE, DOWN=OPEN)")
+
+    # 2) ВНИЗ → ждём DOWN=CLOSE
     io.set_relay("R04_C2", True)  # ON=вниз
     if not wait_sensor(io, "GER_C2_DOWN", True, TIMEOUT_SEC):
         io.set_relay("R04_C2", False)
-        ev_err("C2_NO_DOWN", f"Не досягли GER_C2_DOWN=CLOSE за {TIMEOUT_SEC}s", popup=True)
+        msg = f"Не досягли GER_C2_DOWN=CLOSE за {TIMEOUT_SEC}s"
+        ev_err("C2_NO_DOWN", msg, popup=True)
+        write_exit_reason("c2_no_down", msg, {})
         return False
 
-    # Затем вверх
-    io.set_relay("R04_C2", False)  # OFF=вверх
+    # ВВЕРХ → ждём UP=CLOSE
+    io.set_relay("R04_C2", False) # OFF=вверх
     if not wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC):
-        ev_err("C2_NO_UP", f"Не досягли GER_C2_UP=CLOSE за {TIMEOUT_SEC}s", popup=True)
+        msg = f"Не досягли GER_C2_UP=CLOSE за {TIMEOUT_SEC}s"
+        ev_err("C2_NO_UP", msg, popup=True)
+        write_exit_reason("c2_no_up", msg, {})
         return False
 
-    # 1.3 Импульс выбора таски 0
+    ev_info("PNEUMATICS_CYCLE_OK", "Циліндр: вниз/вгору пройдено")
+
+    # 3) Выбор таски 0 (500 мс)
     io.pulse("R07_DI5_TSK0", TASK0_PULSE_MS)
     ev_info("TASK_SELECT", "Выбрана таска 0 перед стартом", task=0, ms=TASK0_PULSE_MS)
     return True
+
 
 
 
@@ -732,7 +753,7 @@ def main():
 
     # 2) Пневмо-прединициализация и выбор таски 0 (до открытия Serial и G28)
     if not ensure_pneumatics_and_task0(io):
-        # сообщим и корректно завершимся
+    # Причина уже записана в ev_err + last_exit.json, просто выходим
         trg.stop()
         io.cleanup()
         raise SystemExit(2)

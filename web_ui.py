@@ -229,6 +229,17 @@ def api_ext_stop():
     time.sleep(0.1)
     return jsonify(build_status())
 
+@app.route("/api/last_exit")
+def api_last_exit():
+    p = Path("/tmp/last_exit.json")
+    if p.exists():
+        try:
+            return jsonify({"ok": True, "data": json.loads(p.read_text(encoding="utf-8"))})
+        except Exception:
+            return jsonify({"ok": False, "err": "read_failed"})
+    return jsonify({"ok": True, "data": None})
+
+
 @app.route("/api/trigger/start", methods=["POST"])
 def api_trigger_start():
     if not ext_is_running():
@@ -304,6 +315,7 @@ INDEX_HTML = """<!doctype html>
 </head>
 <body>
   <h1>RPi IO Панель</h1>
+  <div id="exitBanner" style="display:none;padding:8px;border-radius:8px;background:#ffd6d6;color:#7a0000;margin:8px 0;"></div>
   <div class="small" id="statusTime"></div>
 
   <div class="row">
@@ -482,6 +494,25 @@ function render(data){
   document.querySelectorAll('#relaysTbl button, #relaysTbl input').forEach(el=>{ el.disabled = disabled; });
 }
 
+async function loadLastExit(){
+  try{
+    const r = await fetch('/api/last_exit');
+    const j = await r.json();
+    const b = document.getElementById('exitBanner');
+    if (j.ok && j.data){
+      b.style.display = 'block';
+      const d = j.data;
+      b.textContent = `[${d.ts}] ${d.msg}`;
+    } else {
+      b.style.display = 'none';
+    }
+  }catch(e){
+    // молча
+  }
+}
+
+
+
 async function refresh(){
   try{
     const data = await getStatus();
@@ -522,6 +553,7 @@ document.getElementById('btnCmdStart').addEventListener('click', async ()=>{
 window.addEventListener('load', async ()=>{
   await loadConfig();          // ← заполняем выпадающий список
   render(await getStatus());   // ← рисуем UI
+  await loadLastExit();       // ← рисуем баннер последнего выхода
   setInterval(refresh, 1000);
 });
 
@@ -557,6 +589,7 @@ async function loadEvents(){
 window.addEventListener('load', async ()=>{
   // у тебя уже есть: await loadConfig(); render(await getStatus());
   await loadEvents();
+  await loadLastExit();
   // периодические обновления:
   setInterval(loadEvents, 1500);
 });
