@@ -937,19 +937,17 @@ def main():
      #   try: ser.close()
      #   except Exception: pass
      #   raise SystemExit(2)
-    time.sleep(1.0)   # ← твой пункт 1.6 «ждем 1 сек»
+    #time.sleep(1.0)   # ← твой пункт 1.6 «ждем 1 сек»
 
-    try:
-        ser.reset_input_buffer()
-    except Exception:
-        pass
+    #try:
+    #    ser.reset_input_buffer()
+    #except Exception:
+    #    pass
 
     # 1.6–1.7 Ждём MOT_X_OK/MOT_Y_OK/ok READY (с авто-RESET при *_ALARM)
     if not wait_motors_ok_and_ready(ser, timeout=15.0):
         # причина уже залогирована внутри; закрытие ресурсов — в finally
         raise SystemExit(2)
-
-
 
     # 3) базовая инициализация координатной системы
     # 1.6 Хоуминг G28 и ожидание IN_HOME_POS / ok
