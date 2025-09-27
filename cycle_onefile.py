@@ -828,14 +828,14 @@ def main():
         pass
     
     # ЖДЁМ БАННЕР ТОЛЬКО ОДИН РАЗ
-    if not wait_ready(ser, timeout=5.0):
-        ev_err("READY_TIMEOUT", "Не дочекалися 'ok READY' від контролера")
-        trg.stop()
-        io.cleanup()
-        try: ser.close()
-        except Exception: pass
-        raise SystemExit(2)
-    time.sleep(1.0)   # ← твой пункт 1.6 «ждем 1 сек»
+    #if not wait_ready(ser, timeout=5.0):
+    #    ev_err("READY_TIMEOUT", "Не дочекалися 'ok READY' від контролера")
+    #    trg.stop()
+     #   io.cleanup()
+     #   try: ser.close()
+      #  except Exception: pass
+      #  raise SystemExit(2)
+    #time.sleep(1.0)   # ← твой пункт 1.6 «ждем 1 сек»
 
     #try:
     #    ser.reset_input_buffer()
