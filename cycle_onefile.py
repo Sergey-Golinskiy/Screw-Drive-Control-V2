@@ -314,39 +314,114 @@ def wait_ready(ser: serial.Serial, timeout: float = 5.0) -> bool:
     print("[SER] TIMEOUT: не отримали 'ok READY'")
     return False
 
-def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 8.0) -> bool:
+def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 15.0) -> bool:
     """
-    Ждём, пока прошивка пришлёт:
+    Ждём, пока прошивка пришлёт (в любом порядке):
       - 'MOT_X_OK'
       - 'MOT_Y_OK'
       - 'ok READY'
-    Порядок неважен; требуется увидеть все три маркера до таймаута.
+
+    Дополнительно (п.1.5.1):
+      Если увидели 'MOT_X_ALARM'/'MOT_Y_ALARM' — отправляем 'MOT_X_RESET'/'MOT_Y_RESET'
+      и продолжаем ждать соответствующие 'MOT_*_OK'.
+
+    Возвращает True если все три маркера пришли до таймаута.
+    При таймауте — пишет ev_err с popup и возвращает False.
     """
-    t_end = time.time() + timeout
-    got_x = got_y = got_ready = False
+    # На всякий случай очистим входной буфер перед ожиданием
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+
+    t_end   = time.time() + timeout
+    got_x   = False
+    got_y   = False
+    got_rdy = False
+
+    x_alarm_seen = False
+    y_alarm_seen = False
 
     while time.time() < t_end:
-        s = ser.readline().decode(errors="ignore").strip()
+        raw = ser.readline()
+        if not raw:
+            continue
+        s = raw.decode(errors="ignore").strip()
         if not s:
             continue
-        print(f"[SER] {s}")
-        ls = s.lower()
 
+        print(f"[SER] {s}")
+        ls = s.lower().replace("  ", " ").strip()
+
+        # --- OK маркеры
         if "mot_x_ok" in ls and not got_x:
             got_x = True
             ev_info("MOT_X_OK", "Мотор X готов")
+            continue
+
         if "mot_y_ok" in ls and not got_y:
             got_y = True
             ev_info("MOT_Y_OK", "Мотор Y готов")
-        if ls.replace("  ", " ").strip() == "ok ready":
-            got_ready = True
+            continue
 
-        if got_x and got_y and got_ready:
+        if ls == "ok ready" and not got_rdy:
+            got_rdy = True
+            # Можно залогировать при желании:
+            ev_info("READY_OK", "Контролер готов (ok READY)")
+            continue
+
+        # --- ALARM маркеры → авто-сброс
+        if "mot_x_alarm" in ls:
+            x_alarm_seen = True
+            ev_info("MOT_X_ALARM", "ALARM на осі X — виконуємо скидання")
+            try:
+                ser.write(b"MOT_X_RESET\n")
+                ser.flush()
+            except Exception as e:
+                ev_err("MOT_X_RESET_FAIL", f"Помилка відправки MOT_X_RESET: {e}", popup=True)
+                return False
+            # Не выходим — продолжаем цикл, ждём MOT_X_OK
+            continue
+
+        if "mot_y_alarm" in ls:
+            y_alarm_seen = True
+            ev_info("MOT_Y_ALARM", "ALARM на осі Y — виконуємо скидання")
+            try:
+                ser.write(b"MOT_Y_RESET\n")
+                ser.flush()
+            except Exception as e:
+                ev_err("MOT_Y_RESET_FAIL", f"Помилка відправки MOT_Y_RESET: {e}", popup=True)
+                return False
+            # Не выходим — продолжаем цикл, ждём MOT_Y_OK
+            continue
+
+        # Можно обработать 'err ...' строки, если они у тебя бывают:
+        if ls.startswith("err"):
+            ev_err("SER_ERR", f"Контролер відповів помилкою: {s}", popup=True)
+            return False
+
+        # Иные строки просто игнорируем и читаем дальше
+
+        # Условие успешного выхода — все три маркера получены
+        if got_x and got_y and got_rdy:
             return True
 
-    ev_err("READY_TIMEOUT", f"Не отримали MOT_X_OK/MOT_Y_OK/ok READY за {timeout}s",
-           x=got_x, y=got_y, ready=got_ready, popup=True)
+    # Таймаут ожидания
+    ev_err("READY_TIMEOUT",
+           f"Не отримали всі маркери (X_OK={got_x}, Y_OK={got_y}, READY={got_rdy}) за {timeout}s",
+           popup=True, x_ok=got_x, y_ok=got_y, ready=got_rdy,
+           x_alarm=x_alarm_seen, y_alarm=y_alarm_seen)
+    # Если ты ведёшь файл с причинами — можно записать:
+    try:
+        write_exit_reason("ready_timeout",
+                          "Таймаут очікування MOT_X_OK/MOT_Y_OK/ok READY",
+                          {"x_ok": got_x, "y_ok": got_y, "ready": got_rdy,
+                           "x_alarm_seen": x_alarm_seen, "y_alarm_seen": y_alarm_seen,
+                           "timeout_s": timeout})
+    except Exception:
+        pass
     return False
+
 
 
 def send_cmd(ser: serial.Serial, line: str):
