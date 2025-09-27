@@ -362,7 +362,7 @@ class WorkTab(QWidget):
         #self.stateLabel.setText("Status: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
         # === NEW: применим статус «готовности/хоминга» из /tmp/ui_status.json ===
         try:
-            ui = self.stateLabel._read_ui_status_file()
+            ui = self._read_ui_status_file()
         except Exception:
             ui = {"status_text": "Нет связи со статусом…", "can_tighten": False}
         self._apply_ui_status(ui)
