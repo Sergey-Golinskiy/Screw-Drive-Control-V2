@@ -947,7 +947,7 @@ def main():
     # 1.6–1.7 Ждём MOT_X_OK/MOT_Y_OK/ok READY (с авто-RESET при *_ALARM)
     if not wait_motors_ok_and_ready(ser, timeout=15.0):
         # причина уже залогирована внутри; закрытие ресурсов — в finally
-        raise SystemExit(2)
+        raise
 
     # 3) базовая инициализация координатной системы
     # 1.6 Хоуминг G28 и ожидание IN_HOME_POS / ok
