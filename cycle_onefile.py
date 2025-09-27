@@ -319,69 +319,52 @@ def send_cmd(ser: serial.Serial, line: str):
 def move_xy(ser: serial.Serial, x: float, y: float, f: int = MOVE_F):
     send_cmd(ser, f"G X{x} Y{y} F{f}")
 
-def home_to_zero(ser: serial.Serial, timeout: float = 30.0, retries: int = 2) -> bool:
+def home_to_zero(ser: serial.Serial, timeout: float = 30.0) -> bool:
     """
     Отправляем 'G28' и ждём:
-      1) 'IN_HOME_POS' (фактический дом),
-      2) затем 'ok' (завершение).
-    Если видим 'HOME_NOT_FOUND' или 'err ...' — делаем до `retries` повторов.
-    Успех возможен ТОЛЬКО если был IN_HOME_POS → ok.
+      1) 'IN_HOME_POS' (фактический выезд в нули),
+      2) затем 'ok' (успешное завершение).
+    Если видим 'HOME_NOT_FOUND' или 'err ...' — считаем ошибкой и НЕ продолжаем.
     """
-    def try_once(tout: float) -> tuple[bool, str]:
-        # очистим вход
-        try: ser.reset_input_buffer()
-        except Exception: pass
-        # команда
-        ser.write(b"G28\n")
-        t_end = time.time() + tout
-        got_in_home = False
-
-        while time.time() < t_end:
-            s = ser.readline().decode(errors="ignore").strip()
-            if not s:
-                continue
-            print(f"[SER] {s}")
-            ls = s.lower()
-
-            if "home_not_found" in ls:
-                return (False, "HOME_NOT_FOUND")
-
-            if "in_home_pos" in ls and not got_in_home:
-                got_in_home = True
-                ev_info("IN_HOME_POS", "Стіл у нульових координатах")
-
-            if s.startswith("err"):
-                return (False, f"ERR:{s}")
-
-            if s.startswith("ok") and got_in_home:
-                ev_info("HOME_OK", "Хоумінг завершено (IN_HOME_POS → ok)")
-                return (True, "OK")
-
-        return (False, "TIMEOUT")
-
-    # Первая попытка
-    ok, why = try_once(timeout)
-    if ok:
-        return True
-
-    ev_warn("HOME_FAIL", f"G28 не вдався: {why}. Спробуємо ще раз.", reason=why)
-
-    # Повторы
-    for i in range(1, retries + 1):
-        time.sleep(0.5)  # невелика затримка
-        ok, why = try_once(timeout * 0.8)  # чуть короче окно
-        if ok:
-            return True
-        ev_warn("HOME_RETRY_FAIL", f"Повтор G28 №{i} не вдався: {why}")
-
-    # Итоговый фейл — popup и причина
-    msg = f"Не вдалось виконати G28: {why}"
-    ev_err("HOME_NOT_DONE", msg, popup=True)
+    # на всякий случай очистим входной буфер
     try:
-        write_exit_reason("home_failed", msg, {"final_reason": why})
+        ser.reset_input_buffer()
     except Exception:
         pass
+
+    # отправить G28
+    ser.write(b"G28\n")
+    t_end = time.time() + timeout
+    got_in_home = False
+
+    while time.time() < t_end:
+        s = ser.readline().decode(errors="ignore").strip()
+        if not s:
+            continue
+        print(f"[SER] {s}")
+        ls = s.lower()
+
+        if "home_not_found" in ls:
+            ev_err("HOME_NOT_FOUND", "Контролер не знайшов домашню позицію (HOME_NOT_FOUND)", popup=True)
+            return False
+
+        if "in_home_pos" in ls and not got_in_home:
+            got_in_home = True
+            ev_info("IN_HOME_POS", "Стіл у нульових координатах")
+            # продолжаем читать до финального ok
+
+        if s.startswith("err"):
+            ev_err("HOME_ERR", f"Помилка під час G28: {s}", popup=True)
+            return False
+
+        # успешное завершение — только когда уже был IN_HOME_POS и пришло 'ok'
+        if s.startswith("ok") and got_in_home:
+            ev_info("HOME_OK", "Хоумінг завершено (IN_HOME_POS → ok)")
+            return True
+
+    ev_err("HOME_TIMEOUT", f"Не дочекалися IN_HOME_POS/ok за {timeout}s", popup=True)
     return False
+
 
 
 
@@ -741,6 +724,7 @@ def main():
         raise SystemExit(2)
 
     # 3) базовая инициализация координатной системы
+    time.sleep(2.0)
     print("=== Старт скрипта ===")
     if not home_to_zero(ser, timeout=30.0):
     # не продолжаем к WORK/маршруту — выходим; finally закроет ресурсы
