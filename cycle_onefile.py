@@ -908,8 +908,7 @@ def main():
     select_task0(io, ms=500)
 
 
-
-    # 2) открыть serial и проверить готовность контроллера
+# 2) открыть serial и проверить готовность контроллера
     print(f"[{ts()}] Відкриваю serial-порт {SERIAL_PORT} @ {SERIAL_BAUD}")
     ser = open_serial()
     print(f"[{ts()}] Serial відкрито")
@@ -938,8 +937,8 @@ def main():
     #    pass
 
     # 1.6–1.7 Ждём MOT_X_OK/MOT_Y_OK/ok READY (с авто-RESET при *_ALARM)
-    #if not wait_motors_ok_and_ready(ser, timeout=15.0):
-    #    raise SystemExit(2)
+    if not wait_motors_ok_and_ready(ser, timeout=15.0):
+        raise SystemExit(2)
 
     #ev_info("READY_ALL_OK", "Отримали MOT_X_OK, MOT_Y_OK і ok READY — переходимо до G28")
     #print("=== Старт скрипта === (перед G28)")
