@@ -532,24 +532,24 @@ def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 15.0) -> bool:
         ls = s.lower().replace("  ", " ").strip()
 
         # --- OK маркеры
-        if "mot_x_ok" in ls and not got_x:
+        if "MOT_X_OK" in ls and not got_x:
             got_x = True
             ev_info("MOT_X_OK", "Мотор X готов")
             continue
 
-        if "mot_y_ok" in ls and not got_y:
+        if "MOT_Y_OK" in ls and not got_y:
             got_y = True
             ev_info("MOT_Y_OK", "Мотор Y готов")
             continue
 
-        if ls == "ok ready" and not got_rdy:
+        if ls == "ok READY" and not got_rdy:
             got_rdy = True
             # Можно залогировать при желании:
             ev_info("READY_OK", "Контролер готов (ok READY)")
             continue
 
         # --- ALARM маркеры → авто-сброс
-        if "mot_x_alarm" in ls:
+        if "MOT_X_ALARM" in ls:
             x_alarm_seen = True
             ev_info("MOT_X_ALARM", "ALARM на осі X — виконуємо скидання")
             try:
@@ -561,7 +561,7 @@ def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 15.0) -> bool:
             # Не выходим — продолжаем цикл, ждём MOT_X_OK
             continue
 
-        if "mot_y_alarm" in ls:
+        if "MOT_Y_ALARM" in ls:
             y_alarm_seen = True
             ev_info("MOT_Y_ALARM", "ALARM на осі Y — виконуємо скидання")
             try:
