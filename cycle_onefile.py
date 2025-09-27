@@ -43,6 +43,8 @@ TASK_PULSE_MS = 700  # п.7: импульс выбора задачи
 EVENT_LOG_PATH = Path("/tmp/screw_events.jsonl")
 EVENT_BUFFER_SIZE = 200  # сколько последних событий держать в памяти
 
+
+
 # Файл конфигурации устройств (датчиков/реле)
 # Реле (BCM): подгони под свою распиновку при необходимости
 RELAY_PINS = {
@@ -79,6 +81,7 @@ FEED_PULSE_MS = 200               # п.9/16/23: импульс подачі
 IND_PULSE_WINDOW_MS = 1000         # п.10/17/24: окно контроля IND_SCRW
 FREE_BURST_MS = 100               # п.14/21/28: импульс free-run
 MOVE_F = 30000                    # скорость G-команд
+TASK0_PULSE_MS = 500
 
 # Точки для трёх подач (п.8, п.15, п.22)
 POINTS = [
@@ -304,6 +307,40 @@ def wait_ready(ser: serial.Serial, timeout: float = 5.0) -> bool:
     print("[SER] TIMEOUT: не отримали 'ok READY'")
     return False
 
+def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 8.0) -> bool:
+    """
+    Ждём, пока прошивка пришлёт:
+      - 'MOT_X_OK'
+      - 'MOT_Y_OK'
+      - 'ok READY'
+    Порядок неважен; требуется увидеть все три маркера до таймаута.
+    """
+    t_end = time.time() + timeout
+    got_x = got_y = got_ready = False
+
+    while time.time() < t_end:
+        s = ser.readline().decode(errors="ignore").strip()
+        if not s:
+            continue
+        print(f"[SER] {s}")
+        ls = s.lower()
+
+        if "mot_x_ok" in ls and not got_x:
+            got_x = True
+            ev_info("MOT_X_OK", "Мотор X готов")
+        if "mot_y_ok" in ls and not got_y:
+            got_y = True
+            ev_info("MOT_Y_OK", "Мотор Y готов")
+        if ls.replace("  ", " ").strip() == "ok ready":
+            got_ready = True
+
+        if got_x and got_y and got_ready:
+            return True
+
+    ev_err("READY_TIMEOUT", f"Не отримали MOT_X_OK/MOT_Y_OK/ok READY за {timeout}s",
+           x=got_x, y=got_y, ready=got_ready, popup=True)
+    return False
+
 
 def send_cmd(ser: serial.Serial, line: str):
     """Отправить команду и дождаться ok/err; печатаем ответы."""
@@ -352,6 +389,44 @@ def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) ->
             print(f"[wait_new_press] TIMEOUT: {sensor_name} не натиснута")
             return False
         time.sleep(0.01)
+
+def ensure_pneumatics_and_task0(io: "IOController") -> bool:
+    """
+    1.1 Проверяем начальные состояния герконов:
+        GER_C2_UP = CLOSE и GER_C2_DOWN = CLOSE.
+        Если не так — пишем событие и просим оператора проверить пневматику.
+    1.2 Прогоняем цилиндр вниз/вверх (R04_C2): вниз до CLOSE на GER_C2_DOWN, затем вверх до CLOSE на GER_C2_UP.
+    1.3 Даём импульс R07_DI5_TSK0 на 500 мс (выбор таски 0).
+    """
+    up = io.sensor_state("GER_C2_UP")      # True = CLOSE
+    down = io.sensor_state("GER_C2_DOWN")  # True = CLOSE
+
+    if not (up and down):
+        # popup=True — чтобы UI мог показать всплывающее окно (см. правку в web_ui.py)
+        ev_err("PNEUMATICS_CHECK", "Перевірте пневматику: потрібні CLOSE на GER_C2_UP та GER_C2_DOWN перед стартом",
+               up=up, down=down, popup=True)
+        return False
+    ev_info("PNEUMATICS_OK", "Пневматика: початковий стан валідний (UP=CLOSE, DOWN=CLOSE)")
+
+    # 1.2 Вниз
+    io.set_relay("R04_C2", True)  # ON=вниз
+    if not wait_sensor(io, "GER_C2_DOWN", True, TIMEOUT_SEC):
+        io.set_relay("R04_C2", False)
+        ev_err("C2_NO_DOWN", f"Не досягли GER_C2_DOWN=CLOSE за {TIMEOUT_SEC}s", popup=True)
+        return False
+
+    # Затем вверх
+    io.set_relay("R04_C2", False)  # OFF=вверх
+    if not wait_sensor(io, "GER_C2_UP", True, TIMEOUT_SEC):
+        ev_err("C2_NO_UP", f"Не досягли GER_C2_UP=CLOSE за {TIMEOUT_SEC}s", popup=True)
+        return False
+
+    # 1.3 Импульс выбора таски 0
+    io.pulse("R07_DI5_TSK0", TASK0_PULSE_MS)
+    ev_info("TASK_SELECT", "Выбрана таска 0 перед стартом", task=0, ms=TASK0_PULSE_MS)
+    return True
+
+
 
 class StartTrigger:
     def __init__(self, host: str = TRIGGER_HOST, port: int = TRIGGER_PORT):
@@ -655,6 +730,13 @@ def main():
     trg = StartTrigger(TRIGGER_HOST, TRIGGER_PORT)
     trg.start()
 
+    # 2) Пневмо-прединициализация и выбор таски 0 (до открытия Serial и G28)
+    if not ensure_pneumatics_and_task0(io):
+        # сообщим и корректно завершимся
+        trg.stop()
+        io.cleanup()
+        raise SystemExit(2)
+
     # 2) открыть serial и проверить готовность контроллера
     print(f"[{ts()}] Відкриваю serial-порт {SERIAL_PORT} @ {SERIAL_BAUD}")
     ser = open_serial()
@@ -666,9 +748,9 @@ def main():
     except Exception:
         pass
 
-    # ЖДЁМ БАННЕР ТОЛЬКО ОДИН РАЗ
-    if not wait_ready(ser, timeout=5.0):
-        ev_err("READY_TIMEOUT", "Не дочекалися 'ok READY' від контролера")
+    # Ждём MOT_X_OK/MOT_Y_OK/ok READY (порядок не важен)
+    if not wait_motors_ok_and_ready(ser, timeout=8.0):
+        # ev_err уже записан внутри, здесь — чистое завершение
         trg.stop()
         io.cleanup()
         try: ser.close()

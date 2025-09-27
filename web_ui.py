@@ -356,6 +356,8 @@ INDEX_HTML = """<!doctype html>
   
 
 <script>
+
+
 async function getStatus(){
   const res = await fetch('/api/status');
   if(!res.ok) throw new Error('status HTTP '+res.status);
@@ -493,6 +495,8 @@ async function cmd(name, action, ms){
   if(data) render(data);
 }
 
+let lastPopupTs = null;
+
 document.getElementById('deviceSelect').addEventListener('change', async (e)=>{
   const key = e.target.value || null;
   if(key){ await postSelect(key); }
@@ -539,6 +543,12 @@ async function loadEvents(){
       `;
       box.appendChild(div);
     });
+    // Всплывашка при событиях с extra.popup === true (показаем один раз на ts)
+    const popupEv = (data.events || []).reverse().find(ev => ev && ev.extra && ev.extra.popup);
+    if (popupEv && popupEv.ts && popupEv.ts !== lastPopupTs) {
+      alert(popupEv.msg || 'Увага!');
+      lastPopupTs = popupEv.ts;
+    }
     box.scrollTop = box.scrollHeight; // автоскролл вниз
   }catch(e){ console.error(e); }
 }
