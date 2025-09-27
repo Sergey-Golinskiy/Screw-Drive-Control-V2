@@ -489,15 +489,9 @@ def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 15.0) -> bool:
       - 'MOT_X_OK'
       - 'MOT_Y_OK'
       - 'ok READY'
-
-    Если видим:
-      - 'MOT_X_ALARM' → отправляем 'MOT_X_RESET' и продолжаем ждать 'MOT_X_OK'
-      - 'MOT_Y_ALARM' → отправляем 'MOT_Y_RESET' и продолжаем ждать 'MOT_Y_OK'
-
-    Возвращает True, если все три маркера получены до таймаута, иначе False.
-    НИЧЕГО не закрывает (serial, потоки и т.д.) — это делается в вызывающем коде.
+    При 'MOT_X_ALARM'/'MOT_Y_ALARM' отправляем 'MOT_X_RESET'/'MOT_Y_RESET'
+    и продолжаем ждать соответствующий '*_OK'.
     """
-    # полезно перед ожиданием очистить входной буфер
     try:
         ser.reset_input_buffer()
     except Exception:
@@ -508,14 +502,17 @@ def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 15.0) -> bool:
     got_y_ok = False
     got_ready = False
 
-    # флаги для диагностики — видели ли вообще ALARM
     x_alarm_seen = False
     y_alarm_seen = False
 
     while time.time() < t_end:
+        # ✅ Успех проверяем СРАЗУ, до чтения строки
+        if got_x_ok and got_y_ok and got_ready:
+            return True
+
         raw = ser.readline()
         if not raw:
-            continue
+            continue  # снова на верх цикла — там ещё раз проверим успех
 
         s = raw.decode(errors="ignore").strip()
         if not s:
@@ -529,56 +526,52 @@ def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 15.0) -> bool:
             x_alarm_seen = True
             ev_info("MOT_X_ALARM", "ALARM на осі X — виконуємо скидання")
             try:
-                ser.write(b"MOT_X_RESET\n")
-                ser.flush()
+                ser.write(b"MOT_X_RESET\n"); ser.flush()
             except Exception as e:
                 ev_err("MOT_X_RESET_FAIL", f"Помилка відправки MOT_X_RESET: {e}", popup=True)
                 return False
-            # продолжаем цикл — ждём MOT_X_OK
             continue
 
         if "mot_y_alarm" in ls:
             y_alarm_seen = True
             ev_info("MOT_Y_ALARM", "ALARM на осі Y — виконуємо скидання")
             try:
-                ser.write(b"MOT_Y_RESET\n")
-                ser.flush()
+                ser.write(b"MOT_Y_RESET\n"); ser.flush()
             except Exception as e:
                 ev_err("MOT_Y_RESET_FAIL", f"Помилка відправки MOT_Y_RESET: {e}", popup=True)
                 return False
-            # продолжаем цикл — ждём MOT_Y_OK
             continue
 
-        # --- ОК маркеры ---
-        if "mot_x_ok" in ls and not got_x_ok:
-            got_x_ok = True
-            ev_info("MOT_X_OK", "Мотор X готов")
-            # не return — ждём остальные маркеры
+        # --- OK маркеры ---
+        if "mot_x_ok" in ls:
+            if not got_x_ok:
+                got_x_ok = True
+                ev_info("MOT_X_OK", "Мотор X готов")
+            # ✅ сразу проверим успех
+            if got_x_ok and got_y_ok and got_ready:
+                return True
             continue
 
-        if "mot_y_ok" in ls and not got_y_ok:
-            got_y_ok = True
-            ev_info("MOT_Y_OK", "Мотор Y готов")
+        if "mot_y_ok" in ls:
+            if not got_y_ok:
+                got_y_ok = True
+                ev_info("MOT_Y_OK", "Мотор Y готов")
+            if got_x_ok and got_y_ok and got_ready:
+                return True
             continue
 
-        # ok READY может прийти в разных регистрах; проверяем по lower
-        if ls == "ok ready" and not got_ready:
-            got_ready = True
-            ev_info("READY_OK", "Контролер готов (ok READY)")
+        if ls == "ok ready":
+            if not got_ready:
+                got_ready = True
+                ev_info("READY_OK", "Контролер готов (ok READY)")
+            if got_x_ok and got_y_ok and got_ready:
+                return True
             continue
 
-        # общая обработка явной ошибки от контроллера
         if ls.startswith("err"):
             ev_err("SER_ERR", f"Контролер відповів помилкою: {s}", popup=True)
             return False
 
-        # если в этой итерации ничего не сработало — читаем дальше
-
-        # Условие успешного выхода — все три маркера получены
-        if got_x_ok and got_y_ok and got_ready:
-            return True
-
-    # таймаут ожидания
     ev_err(
         "READY_TIMEOUT",
         f"Не отримали всі маркери за {timeout}s "
@@ -937,12 +930,9 @@ def main():
    # после: ser = open_serial(); print("Serial відкрито")
     #time.sleep(1.0)
     if not wait_motors_ok_and_ready(ser, timeout=15.0):
-    # просто выйти; порт закроется в finally
         raise SystemExit(2)
-
     print("=== OK: X_OK + Y_OK + ok READY отримані ===")
-    # пока остановимся здесь, чтобы проверить именно эту функцию
-    #raise SystemExit(2)
+
 
     #ev_info("READY_ALL_OK", "Отримали MOT_X_OK, MOT_Y_OK і ok READY — переходимо до G28")
     #print("=== Старт скрипта === (перед G28)")
