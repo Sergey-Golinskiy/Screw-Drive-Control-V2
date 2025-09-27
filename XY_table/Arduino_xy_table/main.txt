@@ -212,7 +212,7 @@ bool runStep(bool checkEndstops=true){
 /* ===== Guarded move with PED events ===== */
 bool guardedMoveTo(float x_mm, float y_mm, float f_mm_min){
   if(estop){ Serial.println(F("err ESTOP")); return false; }
-  if(!checkAlarmsAndReport()){ return false; } // печать ALARM уже сделана
+  if(!checkAlarmsAndReport()){ return false; } // РїРµС‡Р°С‚СЊ ALARM СѓР¶Рµ СЃРґРµР»Р°РЅР°
 
   long targetX = (long)(constrain(x_mm, X_MIN_MM, X_MAX_MM) * STEPS_PER_MM_X);
   long targetY = (long)(constrain(y_mm, Y_MIN_MM, Y_MAX_MM) * STEPS_PER_MM_Y);
@@ -230,27 +230,27 @@ bool guardedMoveTo(float x_mm, float y_mm, float f_mm_min){
   uint32_t tHoldX=0, tHoldY=0;
 
   while(true){
-    if(!checkAlarmsAndReport()) return false; // стоп по аварии
+    if(!checkAlarmsAndReport()) return false; // СЃС‚РѕРї РїРѕ Р°РІР°СЂРёРё
 
     bool moving = runStep(true);
 
-    // X: удержание + сброс, если PED отпал до выдержки
+    // X: СѓРґРµСЂР¶Р°РЅРёРµ + СЃР±СЂРѕСЃ, РµСЃР»Рё PED РѕС‚РїР°Р» РґРѕ РІС‹РґРµСЂР¶РєРё
     if(trackX && !xPosPrinted){
       if(pedActiveX()){
         if(!tHoldX) tHoldX = millis();
         if(millis()-tHoldX >= PED_SETTLE_MS){ Serial.println(F("PED_X_IN_POS")); xPosPrinted=true; }
       } else {
-        tHoldX = 0; // сброс удержания
+        tHoldX = 0; // СЃР±СЂРѕСЃ СѓРґРµСЂР¶Р°РЅРёСЏ
       }
     }
 
-    // Y: удержание + сброс, если PED отпал до выдержки
+    // Y: СѓРґРµСЂР¶Р°РЅРёРµ + СЃР±СЂРѕСЃ, РµСЃР»Рё PED РѕС‚РїР°Р» РґРѕ РІС‹РґРµСЂР¶РєРё
     if(trackY && !yPosPrinted){
       if(pedActiveY()){
         if(!tHoldY) tHoldY = millis();
         if(millis()-tHoldY >= PED_SETTLE_MS){ Serial.println(F("PED_Y_IN_POS")); yPosPrinted=true; }
       } else {
-        tHoldY = 0; // сброс удержания
+        tHoldY = 0; // СЃР±СЂРѕСЃ СѓРґРµСЂР¶Р°РЅРёСЏ
       }
     }
 
@@ -343,15 +343,15 @@ bool resetMotor(char axis){
 }
 
 /* ===== Commands =====
-   Новые:
+   РќРѕРІС‹Рµ:
      MOT_X_RESET / MOT_Y_RESET
-   Блокировка любого движения/хоминга при активном ALARM:
-     при попытке — печатается MOT_X_ALARM / MOT_Y_ALARM (один раз)
+   Р‘Р»РѕРєРёСЂРѕРІРєР° Р»СЋР±РѕРіРѕ РґРІРёР¶РµРЅРёСЏ/С…РѕРјРёРЅРіР° РїСЂРё Р°РєС‚РёРІРЅРѕРј ALARM:
+     РїСЂРё РїРѕРїС‹С‚РєРµ вЂ” РїРµС‡Р°С‚Р°РµС‚СЃСЏ MOT_X_ALARM / MOT_Y_ALARM (РѕРґРёРЅ СЂР°Р·)
 */
 void handleLine(String s){
   s.trim(); if(!s.length()) return;
 
-  // Актуализируем ALM/OK одноразовые сообщения
+  // РђРєС‚СѓР°Р»РёР·РёСЂСѓРµРј ALM/OK РѕРґРЅРѕСЂР°Р·РѕРІС‹Рµ СЃРѕРѕР±С‰РµРЅРёСЏ
   checkAlarmsAndReport();
 
   if(s=="MOT_X_RESET"){ resetMotor('X'); return; }
@@ -522,7 +522,7 @@ void handleLine(String s){
 }
 
 void loop(){
-  // Следим за ALM даже вне команд (чтобы отдать MOT_*_OK/ALARM один раз)
+  // РЎР»РµРґРёРј Р·Р° ALM РґР°Р¶Рµ РІРЅРµ РєРѕРјР°РЅРґ (С‡С‚РѕР±С‹ РѕС‚РґР°С‚СЊ MOT_*_OK/ALARM РѕРґРёРЅ СЂР°Р·)
   checkAlarmsAndReport();
 
   while(Serial.available()){
