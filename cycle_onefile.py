@@ -949,7 +949,7 @@ def main():
             # ——— ожидание запуска ———
             set_cycle_busy(False)
             ui_status_update(
-            status_text="Готовий до роботи - покладіть девайс і натисніть старт",
+            status_text="Готово - покладіть девайс і натисніть старт",
             can_tighten=True,
             phase="ready"
             )

@@ -292,7 +292,7 @@ QLabel#statusBadge {
     border-radius: 12px;
     background-color: rgba(97,130,52,0.85);    /* тёмнее фон для контраста */
     color: #ffffff;                             /* белый текст */
-    font: 800 14pt "Montserrat Light Alt1";    /* жирнее и чуть крупнее */
+    font: 600 12pt "Montserrat Light Alt1";    /* жирнее и чуть крупнее */
     letter-spacing: 0.2px;
 }
 
@@ -389,7 +389,7 @@ QLabel#statusBadge[variant="danger"] {
         except Exception:
             pass
     # дефолт до готовности
-        return {"status_text": "Выхожу в нули…", "can_tighten": False, "phase": "homing"}
+        return {"status_text": "Статус", "can_tighten": False, "phase": "homing"}
 
     def _apply_ui_status(self, data: dict):
         self.btnPedal.setEnabled(bool(data.get("can_tighten", False)))
@@ -450,7 +450,7 @@ class ServiceTab(QWidget):
         # Левая колонка
         left = QVBoxLayout(); left.setSpacing(18)
 
-        self.sensorsCard = make_card("Сенсоры / концевики")
+        self.sensorsCard = make_card("Сенсори / кінцевики")
         self.sensorsGrid = QGridLayout(); self.sensorsGrid.setHorizontalSpacing(14); self.sensorsGrid.setVerticalSpacing(10)
         self.sensorsCard.layout().addLayout(self.sensorsGrid)
         left.addWidget(self.sensorsCard)
