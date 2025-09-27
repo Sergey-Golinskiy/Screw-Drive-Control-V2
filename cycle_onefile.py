@@ -783,13 +783,8 @@ def main():
 
     # 3) базовая инициализация координатной системы
     print("=== Старт скрипта ===")
-    try:
-        send_cmd(ser, "G28")
-        ev_info("HOME", "Хоумінг виконано")
-    except Exception as e:
-        ev_err("HOME_SEND_FAIL", f"Помилка при відправці G28: {e}", popup=True)
-        write_exit_reason("home_send_fail", f"Не вдалося надіслати G28: {e}", {})
-        raise
+    send_cmd(ser, "G28")
+    ev_info("HOME", "Хоумінг виконано")
     send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
     ev_info("WORK", "Систему переведено у робочий пресет")
 
