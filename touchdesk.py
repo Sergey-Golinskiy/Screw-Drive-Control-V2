@@ -684,12 +684,19 @@ QTextEdit#eventsLog {
         """)
 
         # добавляем в layout вкладки Start
-        root.addWidget(self.lblEventsTitle)
-        root.addWidget(self.txtEvents)
+        
 
         # делаем кнопки побольше и с одинаковой высотой
         self.btnStart.setMinimumHeight(220)
+        self.txtEvents.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
         #self.btnStop.setMinimumHeight(220)
+
+        right.addWidget(self.btnStart, 2)          # вес 2
+        right.addWidget(self.lblEventsTitle, 0)    # заголовок почти без влияния на растяжение
+        right.addWidget(self.txtEvents, 1)         # вес 1 → ≈ половина высоты кнопки
+
+
 
         right.addWidget(self.btnStart, 1)
         #right.addWidget(self.btnStop,  1)
