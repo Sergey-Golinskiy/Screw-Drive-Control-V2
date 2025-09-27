@@ -899,14 +899,18 @@ def main():
     time.sleep(2.0)
     # 3) базовая инициализация координатной системы
     # 1.6 Хоуминг G28 и ожидание IN_HOME_POS / ok
-    if not home_to_zero(ser, timeout=10.0):
+    #if not home_to_zero(ser, timeout=10.0):
         # причина уже записана, выходим; закрытие — в finally
-        raise SystemExit(2)
-    print("=== В нулях ===")
+    #    raise SystemExit(2)
+    #print("=== В нулях ===")
     # 1.7 Переход у WORK (ждём 'ok')
     #if not go_work(ser, timeout=10.0):
     #    raise SystemExit(2)
-
+    print("=== Старт скрипта ===")
+    send_cmd(ser, "G28")   # хоуминг
+    ev_info("HOME", "Хоуминг выполнен")
+    send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
+    ev_info("WORK", "Систему переведено у робочий пресет")
     
     #send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
     #ev_info("WORK", "Систему переведено у робочий пресет")
