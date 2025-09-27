@@ -935,7 +935,7 @@ def main():
 
     # 1.6–1.7 Ждём MOT_X_OK/MOT_Y_OK/ok READY (с авто-RESET при *_ALARM)
    # после: ser = open_serial(); print("Serial відкрито")
-    time.sleep(1.0)
+    #time.sleep(1.0)
     if not wait_motors_ok_and_ready(ser, timeout=15.0):
     # просто выйти; порт закроется в finally
         raise SystemExit(2)
