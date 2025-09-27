@@ -275,6 +275,7 @@ class WorkTab(QWidget):
         # Блокируем педаль до «готовности»
         self.btnPedal.setEnabled(False)
         self.lblPedalStatus = QLabel("Поле статусу...")
+        self.lblPedalStatus.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         # Лейбл статуса под кнопкой (в том же столбце)
         # Статус-бейдж под кнопкой: яркий и читаемый
@@ -285,39 +286,40 @@ class WorkTab(QWidget):
 
         # Базовый стиль + варианты (цвет/фон) — можно править под бренд
         self.lblPedalStatus.setStyleSheet("""
-        QLabel#statusBadge {
-            padding: 10px 14px;
-            border: 2px solid #679E3C;           /* брендовый зелёный */
-            border-radius: 12px;
-            background-color: rgba(103,158,60,0.12);
-            color: #111;
-            font: 700 13.5pt "Montserrat Light Alt1"; /* если нет шрифта — подхватится системный */
-            letter-spacing: 0.2px;
-        }
+QLabel#statusBadge {
+    padding: 12px 16px;
+    border: 2px solid #5B672D;                 /* тёмно-оливковый из вашей палитры */
+    border-radius: 12px;
+    background-color: rgba(97,130,52,0.85);    /* тёмнее фон для контраста */
+    color: #ffffff;                             /* белый текст */
+    font: 800 14pt "Montserrat Light Alt1";    /* жирнее и чуть крупнее */
+    letter-spacing: 0.2px;
+}
 
-        /* Фазовые варианты (подключаются в render через property 'variant') */
-        QLabel#statusBadge[variant="info"] {
-            border-color: #618234;
-            background-color: rgba(97,130,52,0.14);
-        }
-        QLabel#statusBadge[variant="success"] {
-            border-color: #679E3C;
-            background-color: rgba(103,158,60,0.18);
-        }
-        QLabel#statusBadge[variant="warning"] {
-            border-color: #564C26;
-            background-color: rgba(255,193,7,0.22);
-        }
-        QLabel#statusBadge[variant="danger"] {
-            border-color: #C0392B;
-            background-color: rgba(192,57,43,0.18);
-        }
+/* Фазовые варианты: подбираем тёмные, чтобы белый текст оставался читабельным */
+QLabel#statusBadge[variant="info"] {
+    border-color: #5B672D;
+    background-color: rgba(73, 94, 32, 0.90);
+}
+QLabel#statusBadge[variant="success"] {
+    border-color: #679E3C;
+    background-color: rgba(66, 122, 28, 0.90);
+}
+QLabel#statusBadge[variant="warning"] {
+    border-color: #564C26;
+    background-color: rgba(156, 120, 15, 0.92);
+}
+QLabel#statusBadge[variant="danger"] {
+    border-color: #8E2F26;
+    background-color: rgba(142, 47, 38, 0.92);
+}
         """)
+
 
         self.btnKill.setObjectName("stopButton")
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
-        root.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
+        root.addWidget(self.lblPedalStatus)
         root.setSpacing(10)
 
         #self.lblPedalStatus = QLabel("Status: unknown"); self.lblPedalStatus.setObjectName("state")
