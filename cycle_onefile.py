@@ -276,6 +276,171 @@ def open_serial():
     ser.rts = False
     return ser
 
+class MotorWatchdog:
+    """
+    Раз в 1с шлёт MOT_STATUS и отслеживает аварии моторов.
+    При ALARM:
+      - поднимает popup (через ev_err) с просьбой перезагрузки,
+      - ждёт триггер от UI (StartTrigger.reset_event),
+      - шлёт MOT_X_RESET/MOT_Y_RESET по необходимости,
+      - ждёт MOT_X_OK/MOT_Y_OK,
+      - сообщает об успехе.
+    """
+    def __init__(self, ser: serial.Serial, trigger: "StartTrigger", period_s: float = 1.0):
+        self.ser = ser
+        self.trigger = trigger
+        self.period_s = period_s
+        self._stop = threading.Event()
+        self._thr = None
+        self._alarm_active = False   # чтобы не спамить popup
+        self._need_reset_x = False
+        self._need_reset_y = False
+
+        # общий мягкий лок на порт, чтобы минимизировать гонки чтения
+        # (опционально можно вынести в модульный SERIAL_LOCK и использовать в send_cmd/home_to_zero)
+        self._lock = threading.Lock()
+
+    def start(self):
+        if self._thr and self._thr.is_alive():
+            return
+        self._stop.clear()
+        self._thr = threading.Thread(target=self._loop, daemon=True)
+        self._thr.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thr:
+            self._thr.join(timeout=1.0)
+
+    def _read_lines_for(self, window_s: float = 0.25) -> list[str]:
+        """Мягко собираем ответы в маленьком окне после команды."""
+        lines = []
+        t_end = time.time() + window_s
+        while time.time() < t_end:
+            try:
+                raw = self.ser.readline()
+            except Exception:
+                break
+            if not raw:
+                continue
+            s = raw.decode(errors="ignore").strip()
+            if s:
+                print(f"[SER] {s}")
+                lines.append(s)
+        return lines
+
+    def _loop(self):
+        while not self._stop.is_set():
+            time.sleep(self.period_s)
+
+            # Если идёт запрос на пользовательский reset — ждём его сначала
+            if self.trigger.reset_event.is_set():
+                self._handle_reset_request()
+                # повторный цикл после обработки
+                continue
+
+            try:
+                with self._lock:
+                    try:
+                        self.ser.reset_input_buffer()
+                    except Exception:
+                        pass
+                    self.ser.write(b"MOT_STATUS\n")
+                    self.ser.flush()
+                    lines = self._read_lines_for(0.3)
+            except Exception as e:
+                ev_err("WD_COMM_ERR", f"Watchdog serial error: {e}")
+                continue
+
+            ls_all = " | ".join([s.lower() for s in lines])
+
+            # Детектируем состояния осей
+            x_ok = ("mot_x_ok" in ls_all)
+            y_ok = ("mot_y_ok" in ls_all)
+            x_alarm = ("mot_x_alarm" in ls_all)
+            y_alarm = ("mot_y_alarm" in ls_all)
+
+            if (x_alarm or y_alarm):
+                self._need_reset_x = x_alarm
+                self._need_reset_y = y_alarm
+
+                if not self._alarm_active:
+                    self._alarm_active = True
+                    # всплывающее уведомление + запрос подтверждения
+                    human = []
+                    if x_alarm: human.append("X")
+                    if y_alarm: human.append("Y")
+                    axes_txt = ", ".join(human) if human else "невідомі"
+                    ev_err(
+                        "MOTOR_ALARM",
+                        f"Мотор(и) {axes_txt} в аварії. Потрібна перезагрузка і переініціалізація.",
+                        popup=True,
+                        requires_user_reset=True,
+                        axes={"X": x_alarm, "Y": y_alarm}
+                    )
+                # ждём нажатия в UI (команда MOTOR_RESET)
+                # (не блокируем навсегда: периодически выходим чтобы проверять stop)
+                self._wait_user_and_reset()
+            else:
+                # нормы — сбрасываем флаги
+                if self._alarm_active and x_ok and y_ok:
+                    ev_info("MOTOR_RECOVERED", "Стан моторов: MOT_X_OK, MOT_Y_OK")
+                self._alarm_active = False
+                self._need_reset_x = False
+                self._need_reset_y = False
+
+    def _wait_user_and_reset(self):
+        """Ожидаем пользовательский клик (MOTOR_RESET) и выполняем RESET + ожидание *_OK."""
+        # ждём кнопку с таймаутом наблюдения, но без завершения треда
+        if not self.trigger.reset_event.wait(timeout=0.1):
+            return  # ещё не нажали — вернёмся в основной цикл
+
+        # сбросить событие, чтобы следующая кнопка требовала нового нажатия
+        self.trigger.reset_event.clear()
+
+        # отправляем RESET по нужным осям
+        try:
+            with self._lock:
+                if self._need_reset_x:
+                    self.ser.write(b"MOT_X_RESET\n")
+                if self._need_reset_y:
+                    self.ser.write(b"MOT_Y_RESET\n")
+                self.ser.flush()
+        except Exception as e:
+            ev_err("MOTOR_RESET_SEND_FAIL", f"Не вдалося надіслати RESET: {e}", popup=True)
+            return
+
+        # ждём подтверждения OK по каждой оси
+        t_end = time.time() + 8.0
+        got_x_ok = (not self._need_reset_x)
+        got_y_ok = (not self._need_reset_y)
+        while time.time() < t_end and not (got_x_ok and got_y_ok):
+            try:
+                raw = self.ser.readline()
+            except Exception:
+                break
+            if not raw:
+                continue
+            s = raw.decode(errors="ignore").strip()
+            if not s:
+                continue
+            print(f"[SER] {s}")
+            ls = s.lower()
+            if ("mot_x_ok" in ls): got_x_ok = True
+            if ("mot_y_ok" in ls): got_y_ok = True
+            if ls.startswith("err"):
+                ev_err("MOTOR_RESET_ERR", f"Помилка після RESET: {s}", popup=True)
+                return
+
+        if got_x_ok and got_y_ok:
+            ev_info("MOTOR_RESET_OK", "Мотори перезавантажено: MOT_X_OK, MOT_Y_OK", popup=True)
+            self._alarm_active = False
+            self._need_reset_x = False
+            self._need_reset_y = False
+        else:
+            ev_err("MOTOR_RESET_TIMEOUT", "Не отримали *_OK після RESET", popup=True)
+
+
 def wait_ready(ser: serial.Serial, timeout: float = 5.0) -> bool:
     """
     Ждём строку 'ok READY' от прошивки Arduino.
@@ -549,6 +714,7 @@ class StartTrigger:
         self.host = host
         self.port = port
         self.event = threading.Event()
+        self.reset_event = threading.Event()
         self._stop = threading.Event()
         self._thr: Optional[threading.Thread] = None
 
@@ -599,6 +765,10 @@ class StartTrigger:
                     if data and b"START" in data.upper():
                         print("[trigger] Отримано команду START від UI")
                         self.event.set()
+                        conn.sendall(b"OK\n")
+                    elif b"MOTOR_RESET" in up:                   # ← НОВОЕ
+                        print("[trigger] Отримано команду MOTOR_RESET від UI")
+                        self.reset_event.set()
                         conn.sendall(b"OK\n")
                     else:
                         conn.sendall(b"ERR\n")
@@ -895,6 +1065,10 @@ def main():
         raise SystemExit(2)
     print("=== OK: X_OK + Y_OK + ok READY отримані ===")
 
+    # Стартуем сторожок
+    wd = MotorWatchdog(ser, trg, period_s=1.0)
+    wd.start()
+
     #time.sleep(5.0)
     time.sleep(2.0)
     # 3) базовая инициализация координатной системы
@@ -906,11 +1080,7 @@ def main():
     # 1.7 Переход у WORK (ждём 'ok')
     #if not go_work(ser, timeout=10.0):
     #    raise SystemExit(2)
-    print("=== Старт скрипта ===")
-    send_cmd(ser, "G28")   # хоуминг
-    ev_info("HOME", "Хоуминг выполнен")
-    send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
-    ev_info("WORK", "Систему переведено у робочий пресет")
+    
     
     #send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
     #ev_info("WORK", "Систему переведено у робочий пресет")

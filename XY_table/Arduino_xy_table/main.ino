@@ -144,6 +144,23 @@ void setupPins(){
   powerY(true);
 }
 
+void printMotStatus(){
+  // читаем текущее (дебаунс) состояние аварий
+  bool ax = alarmX();
+  bool ay = alarmY();
+
+  // печатаем статус для КАЖДОЙ оси
+  if (ax) Serial.println(F("MOT_X_ALARM"));
+  else    Serial.println(F("MOT_X_OK"));
+
+  if (ay) Serial.println(F("MOT_Y_ALARM"));
+  else    Serial.println(F("MOT_Y_OK"));
+
+  // маркер завершения ответа (по аналогии с M114/M119)
+  Serial.println(F("ok"));
+}
+
+
 void setKinematicsMax(){
   stepX.setPinsInverted(INVERT_X_DIR, false, true);
   stepY.setPinsInverted(INVERT_Y_DIR, false, true);
@@ -356,6 +373,8 @@ void handleLine(String s){
 
   if(s=="MOT_X_RESET"){ resetMotor('X'); return; }
   if(s=="MOT_Y_RESET"){ resetMotor('Y'); return; }
+  if(s=="MOT_STATUS"){ printMotStatus(); return; }
+
 
   if(s=="PING"){ Serial.println("PONG"); return; }
   if(s=="M114"){ reportStatus(); Serial.println("ok"); return; }
@@ -370,17 +389,17 @@ void handleLine(String s){
   if(s=="G28"){
     if(estop){ Serial.println("err ESTOP"); return; }
     if(!checkAlarmsAndReport()) return;
-    Serial.println(homeAll() ? "IN_HOME_POS" : "err HOME_NOT_FOUND"); return;
+    Serial.println(homeAll() ? "ok IN_HOME_POS" : "err HOME_NOT_FOUND"); return;
   }
   if(s=="G28 X"){
     if(estop){ Serial.println("err ESTOP"); return; }
     if(!checkAlarmsAndReport()) return;
-    Serial.println(homeX() ? "IN_X_HOME_POS" : "err HOME_X_NOT_FOUND"); return;
+    Serial.println(homeX() ? "ok IN_X_HOME_POS" : "err HOME_X_NOT_FOUND"); return;
   }
   if(s=="G28 Y"){
     if(estop){ Serial.println("err ESTOP"); return; }
     if(!checkAlarmsAndReport()) return;
-    Serial.println(homeY() ? "IN_Y_HOME_POS" : "err HOME_Y_NOT_FOUND"); return;
+    Serial.println(homeY() ? "ok IN_Y_HOME_POS" : "err HOME_Y_NOT_FOUND"); return;
   }
   if(s=="CAL"){
     if(estop){ Serial.println("err ESTOP"); return; }
