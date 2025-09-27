@@ -669,7 +669,7 @@ class StartTab(QWidget):
 
         # заголовок над логом (по желанию)
         self.lblEventsTitle = QLabel("Останні події")
-        self.lblEventsTitle.setStyleSheet("font: 100 8pt 'Montserrat Light Alt1'; margin-top:8px; margin-bottom:2px;color: #FFFFFF;text-transform: capitalize;")
+        self.lblEventsTitle.setStyleSheet("font: 50 6pt 'Montserrat Light Alt1'; margin-top:1px; margin-bottom:1px;color: #FFFFFF;text-transform: capitalize;")
 
 # стиль самого лога
         self.txtEvents.setStyleSheet("""
