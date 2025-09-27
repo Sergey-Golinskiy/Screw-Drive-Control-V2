@@ -942,7 +942,7 @@ def main():
 
     print("=== OK: X_OK + Y_OK + ok READY отримані ===")
     # пока остановимся здесь, чтобы проверить именно эту функцию
-    raise SystemExit(0)
+    #raise SystemExit(2)
 
     #ev_info("READY_ALL_OK", "Отримали MOT_X_OK, MOT_Y_OK і ok READY — переходимо до G28")
     #print("=== Старт скрипта === (перед G28)")
