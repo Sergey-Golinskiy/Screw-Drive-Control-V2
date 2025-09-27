@@ -598,9 +598,9 @@ class StartTab(QWidget):
         right.addWidget(self.btnStop,  1)
 
         # подпись состояния
-        self.stateLabel = QLabel("Status: unknown"); 
-        self.stateLabel.setObjectName("state")
-        right.addWidget(self.stateLabel, 0, Qt.AlignLeft)
+        #self.stateLabel = QLabel("Status: unknown"); 
+        #elf.stateLabel.setObjectName("state")
+        #right.addWidget(self.stateLabel, 0, Qt.AlignLeft)
 
         # собрать две колонки в корневой лэйаут (30/70 через стили растяжения)
         root.addLayout(left, 3)
