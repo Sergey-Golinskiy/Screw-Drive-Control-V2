@@ -37,8 +37,8 @@
 float STEPS_PER_MM_X = 11.111f;
 float STEPS_PER_MM_Y = 20.0f;
 
-float MAX_FEED_MM_S  = 1000.0f;
-float MAX_ACC_MM_S2  = 60000.0f;
+float MAX_FEED_MM_S  = 400.0f;
+float MAX_ACC_MM_S2  = 50000.0f;
 
 float X_MIN_MM = 0.0f, X_MAX_MM = 165.0f;
 float Y_MIN_MM = 0.0f, Y_MAX_MM = 350.0f;
@@ -50,7 +50,7 @@ float SLOW_MM_S       = 2.0f;
 
 float WORK_X_MM = 85.0f;
 float WORK_Y_MM = 350.0f;
-float WORK_F_MM_MIN = 90000;
+float WORK_F_MM_MIN = 60000;
 
 bool INVERT_X_DIR = true;
 bool INVERT_Y_DIR = false;
@@ -370,17 +370,17 @@ void handleLine(String s){
   if(s=="G28"){
     if(estop){ Serial.println("err ESTOP"); return; }
     if(!checkAlarmsAndReport()) return;
-    Serial.println(homeAll() ? "ok" : "err HOME_NOT_FOUND"); return;
+    Serial.println(homeAll() ? "IN_HOME_POS" : "err HOME_NOT_FOUND"); return;
   }
   if(s=="G28 X"){
     if(estop){ Serial.println("err ESTOP"); return; }
     if(!checkAlarmsAndReport()) return;
-    Serial.println(homeX() ? "ok" : "err HOME_X_NOT_FOUND"); return;
+    Serial.println(homeX() ? "IN_X_HOME_POS" : "err HOME_X_NOT_FOUND"); return;
   }
   if(s=="G28 Y"){
     if(estop){ Serial.println("err ESTOP"); return; }
     if(!checkAlarmsAndReport()) return;
-    Serial.println(homeY() ? "ok" : "err HOME_Y_NOT_FOUND"); return;
+    Serial.println(homeY() ? "IN_Y_HOME_POS" : "err HOME_Y_NOT_FOUND"); return;
   }
   if(s=="CAL"){
     if(estop){ Serial.println("err ESTOP"); return; }
