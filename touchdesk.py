@@ -364,7 +364,7 @@ class WorkTab(QWidget):
         try:
             ui = self._read_ui_status_file()
         except Exception:
-            ui = {"status_text": "Нет связи со статусом…", "can_tighten": False}
+            ui = {"status_text": "Немає зв'язку зі статусом.", "can_tighten": False}
         self._apply_ui_status(ui)
         # === НОВОЕ: подсветка «Эмуляции педали», пока цикл ЗАНЯТ между нажатиями ===
         busy = bool(st.get("cycle_busy"))
