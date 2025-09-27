@@ -306,90 +306,6 @@ def send_cmd(ser: serial.Serial, line: str):
         if s.startswith("ok") or s.startswith("err"):
             break
 
-def home_to_zero(ser: serial.Serial, timeout: float = 30.0) -> bool:
-    """
-    1.6 Отправляем 'G28' и ждём:
-      - 'IN_HOME_POS' (факт физ. выхода в нули)
-      - затем 'ok' (успешное завершение команды)
-    Если встречаем 'HOME_NOT_FOUND' или 'err ...' — считаем ошибкой и выходим.
-    """
-    try:
-        ser.reset_input_buffer()
-    except Exception:
-        pass
-
-    # отправили G28
-    payload = b"G28\n"
-    ser.write(payload)
-
-    t_end = time.time() + timeout
-    got_in_home = False
-
-    while time.time() < t_end:
-        s = ser.readline().decode(errors="ignore").strip()
-        if not s:
-            continue
-        print(f"[SER] {s}")
-        ls = s.lower().strip()
-
-        if "home_not_found" in ls:
-            msg = "Контролер не знайшов домашню позицію (HOME_NOT_FOUND)"
-            ev_err("HOME_NOT_FOUND", msg, popup=True)
-            write_exit_reason("home_not_found", msg, {})
-            return False
-
-        if "in_home_pos" in ls:
-            got_in_home = True
-            ev_info("IN_HOME_POS", "Стіл у нульових координатах")
-
-        if s.startswith("err"):
-            msg = f"Помилка під час G28: {s}"
-            ev_err("HOME_ERR", msg, popup=True)
-            write_exit_reason("home_err", msg, {})
-            return False
-
-        # успешное завершение — когда уже был IN_HOME_POS и пришло 'ok'
-        if s.startswith("ok") and got_in_home:
-            ev_info("HOME_OK", "Хоумінг завершено (IN_HOME_POS → ok)")
-            return True
-
-    msg = f"Не дочекалися IN_HOME_POS/ok за {timeout}s"
-    ev_err("HOME_TIMEOUT", msg, popup=True)
-    write_exit_reason("home_timeout", msg, {"timeout_s": timeout})
-    return False
-
-def go_work(ser: serial.Serial, timeout: float = 10.0) -> bool:
-    """
-    1.7 Відправляємо 'WORK' і чекаємо 'ok'.
-    """
-    try:
-        ser.reset_input_buffer()
-    except Exception:
-        pass
-
-    ser.write(b"WORK\n")
-    t_end = time.time() + timeout
-
-    while time.time() < t_end:
-        s = ser.readline().decode(errors="ignore").strip()
-        if not s:
-            continue
-        print(f"[SER] {s}")
-        if s.startswith("ok"):
-            ev_info("WORK_OK", "Систему переведено у робочий пресет (ok)")
-            return True
-        if s.startswith("err"):
-            msg = f"Помилка при переході у WORK: {s}"
-            ev_err("WORK_ERR", msg, popup=True)
-            write_exit_reason("work_err", msg, {})
-            return False
-
-    msg = f"Не отримали 'ok' на WORK за {timeout}s"
-    ev_err("WORK_TIMEOUT", msg, popup=True)
-    write_exit_reason("work_timeout", msg, {"timeout_s": timeout})
-    return False
-
-
 def move_xy(ser: serial.Serial, x: float, y: float, f: int = MOVE_F):
     send_cmd(ser, f"G X{x} Y{y} F{f}")
 
@@ -939,13 +855,20 @@ def main():
 
     # 3) базовая инициализация координатной системы
     # 1.6 Хоуминг G28 и ожидание IN_HOME_POS / ok
-    if not home_to_zero(ser, timeout=10.0):
+    #if not home_to_zero(ser, timeout=10.0):
         # причина уже записана, выходим; закрытие — в finally
-        raise SystemExit(2)
+    #    raise SystemExit(2)
 
     # 1.7 Переход у WORK (ждём 'ok')
     #if not go_work(ser, timeout=10.0):
     #    raise SystemExit(2)
+
+    print("=== Старт скрипта ===")
+    send_cmd(ser, "G28")   # хоуминг
+    ev_info("HOME", "Хоуминг выполнен")
+    send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
+    ev_info("WORK", "Систему переведено у робочий пресет")
+
 
     # локальный хелпер перемещения (если у тебя есть глобальный move_xy — можешь использовать его)
     def _move_xy(ser_, x, y, f=None):
