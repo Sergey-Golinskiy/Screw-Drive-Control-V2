@@ -15,6 +15,7 @@ import requests
 import json
 from pathlib import Path
 from functools import partial
+import html
 
 from PyQt5.QtCore import Qt, QTimer, QThread, QEvent, QCoreApplication, pyqtSignal as Signal
 QCoreApplication.setAttribute(Qt.AA_DisableHighDpiScaling, True)
@@ -36,11 +37,14 @@ except Exception:
 PEDAL_GPIO_PIN = 18        # BCM 18 (физический пин 12)
 PEDAL_ACTIVE_LOW = True    # если педаль замыкается на «землю» — оставь True
 PEDAL_PULSE_MS = 120       # длительность импульса
-
+EVENTS_LOG_PATH = Path("/tmp/screw_events.jsonl")
 # ================== Конфиг ==================
 API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000/api")
 POLL_MS   = 1000
 BORDER_W  = 10
+
+# === NEW: единый источник статуса для UI ===
+UI_STATUS_PATH = Path("/tmp/ui_status.json")
 
 def send_start_trigger(host="127.0.0.1", port=8765, payload=b"START\n", timeout=0.5) -> bool:
     try:
@@ -267,20 +271,74 @@ class WorkTab(QWidget):
         root.addWidget(self.ipLabel, 0, Qt.AlignLeft)
 
         row = QHBoxLayout(); row.setSpacing(18)
-        self.btnPedal = big_button("Tighten the screws (pedal emulation)")
-        self.btnKill  = big_button("STOP script")
+        self.btnPedal = big_button("ЗАКРУТИТИ ГВИНТИ")
+        self.btnKill  = big_button("ЗУПИНИТИ")
+        # --- Лок-блокировка «один клик за цикл» ---
+        self._pedal_locked = False     # True = повторный клик запрещён
+        self._pedal_lock_t0 = 0.0      # когда залочили (секунды time.time())
+        self._pedal_lock_timeout = 120 # страховочный авто-анлок через N секунд
+        # Блокируем педаль до «готовности»
+        self.btnPedal.setEnabled(False)
+        self.lblPedalStatus = QLabel("Поле статусу...")
+        self.lblPedalStatus.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        # Лейбл статуса под кнопкой (в том же столбце)
+        # Статус-бейдж под кнопкой: яркий и читаемый
+        self.lblPedalStatus.setObjectName("statusBadge")
+        self.lblPedalStatus.setAlignment(Qt.AlignCenter)
+        self.lblPedalStatus.setWordWrap(True)
+        #self.lblPedalStatus.setText("Выхожу в нули…")
+
+        # Базовый стиль + варианты (цвет/фон) — можно править под бренд
+        self.lblPedalStatus.setStyleSheet("""
+QLabel#statusBadge {
+    padding: 12px 16px;
+    border: 2px solid #5B672D;                 /* тёмно-оливковый из вашей палитры */
+    border-radius: 12px;
+    background-color: rgba(97,130,52,0.85);    /* тёмнее фон для контраста */
+    color: #ffffff;                             /* белый текст */
+    font: 600 12pt "Montserrat Light Alt1";    /* жирнее и чуть крупнее */
+    letter-spacing: 0.2px;
+}
+
+/* Фазовые варианты: подбираем тёмные, чтобы белый текст оставался читабельным */
+QLabel#statusBadge[variant="info"] {
+    border-color: #5B672D;
+    background-color: rgba(73, 94, 32, 0.90);
+}
+QLabel#statusBadge[variant="success"] {
+    border-color: #679E3C;
+    background-color: rgba(66, 122, 28, 0.90);
+}
+QLabel#statusBadge[variant="warning"] {
+    border-color: #564C26;
+    background-color: rgba(156, 120, 15, 0.92);
+}
+QLabel#statusBadge[variant="danger"] {
+    border-color: #8E2F26;
+    background-color: rgba(142, 47, 38, 0.92);
+}
+        """)
+
+
         self.btnKill.setObjectName("stopButton")
         row.addWidget(self.btnPedal); row.addWidget(self.btnKill)
         root.addLayout(row, 1)
+        root.addWidget(self.lblPedalStatus)
+        root.setSpacing(10)
 
-        self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
-        root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
+        #self.lblPedalStatus = QLabel("Status: unknown"); self.lblPedalStatus.setObjectName("state")
+        #root.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
 
         self.btnPedal.clicked.connect(self.on_pedal)
         self.btnKill.clicked.connect(self.on_kill)
 
     def on_pedal(self):
         try:
+            # Не даём эмулировать педаль до «готовности»
+            if not self.btnPedal.isEnabled():
+                self.lblPedalStatus.setText("Not ready yet (homing/positioning).")
+                return
             # Проверим, запущен ли внешний процесс — чтобы не жать в пустоту
             running = False
             try:
@@ -290,7 +348,7 @@ class WorkTab(QWidget):
                 pass
 
             if not running:
-                self.stateLabel.setText(
+                self.lblPedalStatus.setText(
                 'The script is not running. First, click "Start program" on the "Start" tab.'
                 )
                 return
@@ -303,9 +361,12 @@ class WorkTab(QWidget):
 
             ok = send_start_trigger_with_retry()
             if ok:
-                self.stateLabel.setText("START command sent (pedal emulation).")
+                self.lblPedalStatus.setText("START command sent (pedal emulation).")
+                self.btnPedal.setEnabled(False)         # мгновенно «гасим» кнопку
+                self._pedal_locked = True               # <— ставим лок
+                self._pedal_lock_t0 = time.time()
             else:
-                self.stateLabel.setText("Failed to send START (no response from loop).")
+                self.lblPedalStatus.setText("Failed to send START (no response from loop).")
 
             # Обновим статус для подсветки кнопок
             try:
@@ -315,7 +376,7 @@ class WorkTab(QWidget):
                 pass
 
         except Exception as e:
-            self.stateLabel.setText(f"Error sending START: {e}")
+            self.lblPedalStatus.setText(f"Error sending START: {e}")
 
 
 
@@ -326,16 +387,60 @@ class WorkTab(QWidget):
             st = self.api.ext_stop()
             self.render(st)
         except Exception as e:
-            self.stateLabel.setText(f"Stop error: {e}")
+            self.lblPedalStatus.setText(f"Stop error: {e}")
+
+    def _read_ui_status_file(self) -> dict:
+    
+        try:
+            if UI_STATUS_PATH.exists():
+                return json.loads(UI_STATUS_PATH.read_text())
+        except Exception:
+            pass
+    # дефолт до готовности
+        return {"status_text": "Статус", "can_tighten": False, "phase": "homing"}
+
+    def _apply_ui_status(self, data: dict):
+        self.btnPedal.setEnabled(bool(data.get("can_tighten", False)))
+        self.lblPedalStatus.setText(data.get("status_text", "") or "")
+
 
     def render(self, st: dict):
         running = bool(st.get("external_running"))
-        self.stateLabel.setText("Status: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
+        #running = bool(st.get("external_running"))
+        #self.lblPedalStatus.setText("Status: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
+        # === NEW: применим статус «готовности/хоминга» из /tmp/ui_status.json ===
+    
+        try:
+            ui = self._read_ui_status_file()
+        except Exception:
+            ui = {"status_text": "Немає зв'язку зі статусом.", "can_tighten": False}
+        # Текст и доступность кнопки
+        self.lblPedalStatus.setText(ui.get("status_text", "") or "")
+        self.btnPedal.setEnabled(bool(ui.get("can_tighten", False)))
+
+        # Подсветка по фазе (homing/ready/running/alarm)
+        phase = (ui.get("phase") or "").lower()
+        variant = {
+            "homing":  "warning",
+            "ready":   "success",
+            "running": "info",
+            "alarm":   "danger",
+        }.get(phase, "info")
+
+        # Применяем вариант и «переполировываем» виджет, чтобы CSS селектор сработал
+        self.lblPedalStatus.setProperty("variant", variant)
+        self.lblPedalStatus.style().unpolish(self.lblPedalStatus)
+        self.lblPedalStatus.style().polish(self.lblPedalStatus)
+
+
 
         # === НОВОЕ: подсветка «Эмуляции педали», пока цикл ЗАНЯТ между нажатиями ===
         busy = bool(st.get("cycle_busy"))
         # когда busy=True — делаем кнопку зелёной
         self.btnPedal.setProperty("ok", busy)
+
+        if self._pedal_locked and can and (phase in ("ready", "")) and not busy:
+            self._pedal_locked = False
 
         # актуальность «Стоп скрипта» как раньше
         self.btnKill.setProperty("ok", running)
@@ -359,7 +464,7 @@ class ServiceTab(QWidget):
         # Левая колонка
         left = QVBoxLayout(); left.setSpacing(18)
 
-        self.sensorsCard = make_card("Сенсоры / концевики")
+        self.sensorsCard = make_card("Сенсори / кінцевики")
         self.sensorsGrid = QGridLayout(); self.sensorsGrid.setHorizontalSpacing(14); self.sensorsGrid.setVerticalSpacing(10)
         self.sensorsCard.layout().addLayout(self.sensorsGrid)
         left.addWidget(self.sensorsCard)
@@ -552,21 +657,58 @@ class StartTab(QWidget):
         # --------- ПРАВАЯ КОЛОНКА (≈70%) — Кнопки START/STOP вертикально ----------
         right = QVBoxLayout(); right.setSpacing(18)
 
-        self.btnStart = big_button("START program")
-        self.btnStop  = big_button("STOP program")
-        self.btnStop.setObjectName("stopButton")
+        self.btnStart = big_button("ПОЧАТИ РОБОТУ")
+        #self.btnStop  = big_button("STOP program")
+        #self.btnStop.setObjectName("stopButton")
+        self.txtEvents = QTextEdit()
+        self.txtEvents.setReadOnly(True)
+        self.txtEvents.setLineWrapMode(QTextEdit.NoWrap)
+        self.txtEvents.setFont(QFont("DejaVu Sans Mono", 10))
+        self.txtEvents.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.txtEvents.setObjectName("eventsLog")
+
+        # заголовок над логом (по желанию)
+        self.lblEventsTitle = QLabel("Останні події")
+        self.lblEventsTitle.setStyleSheet("font: 400 10pt 'Montserrat Light Alt1'; margin-top:30px; margin-bottom:4px;")
+
+# стиль самого лога
+        self.txtEvents.setStyleSheet("""
+QTextEdit#eventsLog {
+    background: #0f1115;
+    color: #e6e6e6;
+    border: 1px solid #2b2f3a;
+    border-radius: 8px;
+    padding: 8px;
+}
+        """)
+
+        # добавляем в layout вкладки Start
+        
 
         # делаем кнопки побольше и с одинаковой высотой
         self.btnStart.setMinimumHeight(220)
-        self.btnStop.setMinimumHeight(220)
+        self.txtEvents.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+        #self.btnStop.setMinimumHeight(220)
+
+        right.addWidget(self.btnStart, 2)          # вес 2
+        right.addWidget(self.lblEventsTitle, 0)    # заголовок почти без влияния на растяжение
+        right.addWidget(self.txtEvents, 1)         # вес 1 → ≈ половина высоты кнопки
+
+
 
         right.addWidget(self.btnStart, 1)
-        right.addWidget(self.btnStop,  1)
+        right.addWidget(self.btnStart, 2)
+        right.addWidget(self.lblEventsTitle, 0)
+        right.addWidget(self.txtEvents, 1)
+
+
+        #right.addWidget(self.btnStop,  1)
 
         # подпись состояния
-        self.stateLabel = QLabel("Status: unknown"); 
-        self.stateLabel.setObjectName("state")
-        right.addWidget(self.stateLabel, 0, Qt.AlignLeft)
+        self.lblPedalStatus = QLabel("Status: unknown"); 
+        self.lblPedalStatus.setObjectName("state")
+        right.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
 
         # собрать две колонки в корневой лэйаут (30/70 через стили растяжения)
         root.addLayout(left, 3)
@@ -579,7 +721,8 @@ class StartTab(QWidget):
         self._device_buttons = {}   # key -> QPushButton
 
         self.btnStart.clicked.connect(self.on_start)
-        self.btnStop.clicked.connect(self.on_stop)
+        QTimer.singleShot(0, self._resize_events_to_half)
+        #self.btnStop.clicked.connect(self.on_stop)
 
         # первичный рендер (чтоб сразу увидеть устройства, если API доступен)
         try:
@@ -587,19 +730,90 @@ class StartTab(QWidget):
         except Exception:
             pass
 
+    def _resize_events_to_half(self):
+        """Подгоняет высоту лога примерно под половину высоты кнопки START."""
+        h_btn = self.btnStart.height() or self.btnStart.sizeHint().height()
+        self.txtEvents.setFixedHeight(max(120, int(h_btn * 0.5)))  # не меньше 120 px для читаемости
+
+
 
     def on_start(self):
         if not self._selected_key:
-            self.stateLabel.setText("Please select a device first.")
+            self.lblPedalStatus.setText("Please select a device first.")
             return
         try:
-            self.stateLabel.setText("Launching the program…")
+            self.lblPedalStatus.setText("Launching the program…")
             self.api.ext_start()
-            self.stateLabel.setText('The program is running. To begin working, click "START" on the Work tab.')
+            self.lblPedalStatus.setText('The program is running. To begin working, click "START" on the Work tab.')
             if callable(self.on_started):
                 self.on_started()
         except Exception as e:
-            self.stateLabel.setText(f"Failed to start the program: {e}")
+            self.lblPedalStatus.setText(f"Failed to start the program: {e}")
+
+    def _read_log_tail(self, path: Path, max_lines: int = 80) -> list[str]:
+        """Быстро читаем последние max_lines строк из JSONL-файла."""
+        if not path.exists():
+            return ["(лог пока пуст)"]
+        # безопасно и без больших затрат по памяти
+        lines = []
+        with path.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                lines.append(line.rstrip("\n"))
+                if len(lines) > max_lines * 2:
+                    # контролируем рост списка, сдвигая окно
+                    lines = lines[-max_lines*2:]
+        return lines[-max_lines:] or ["(нет записей)"]
+
+    def _format_event_line(self, line: str) -> str:
+        """Парсим JSONL и возвращаем HTML для QTextEdit."""
+        import json, datetime
+        try:
+            evt = json.loads(line)
+            # поля времени
+            ts = evt.get("ts") or evt.get("time") or ""
+            if isinstance(ts, (int, float)):
+                ts = datetime.datetime.fromtimestamp(ts).isoformat(timespec="seconds")
+            ts = str(ts)
+
+            # уровень/имя/сообщение
+            level = (evt.get("level") or evt.get("lvl") or "").upper() or "INFO"
+            name  = evt.get("event") or evt.get("type") or evt.get("name") or "event"
+            msg   = evt.get("msg") or evt.get("message") or ""
+
+            # экранируем пользовательский текст
+            ts_h   = html.escape(ts)
+            level_h= html.escape(level)
+            name_h = html.escape(str(name))
+            msg_h  = html.escape(str(msg))
+
+            # цвета уровней (тёмная тема)
+            color = {
+                "ERROR": "#ff6b6b",
+                "WARN":  "#ffc857",
+                "WARNING":"#ffc857",
+                "INFO":  "#e6e6e6",
+                "DEBUG": "#9fb3c8",
+            }.get(level, "#e6e6e6")
+
+            head = f"[{ts_h}] {level_h}"
+            body = f"{name_h} — {msg_h}" if msg_h else name_h
+
+            return f'<span style="color:{color}">{head}  {body}</span>'
+        except Exception:
+            # не-JSON — отдаём как есть, но экранируем
+            return f'<span style="color:#e6e6e6">{html.escape(line)}</span>'
+
+    def _refresh_events_log(self):
+        lines = self._read_log_tail(EVENTS_LOG_PATH, max_lines=100)
+        html_lines = [self._format_event_line(ln) for ln in lines]
+        self.txtEvents.setHtml("<br>".join(html_lines))
+
+        # прокрутка в самый низ
+        cursor = self.txtEvents.textCursor()
+        cursor.movePosition(cursor.End)
+        self.txtEvents.setTextCursor(cursor)
+
+
 
         # --- создание/перестройка списка устройств слева ---
     def _rebuild_devices(self, devices: list[dict]):
@@ -642,16 +856,16 @@ class StartTab(QWidget):
             self.api.select(key)
             self._selected_key = key
             self._apply_dev_styles()
-            self.stateLabel.setText(f"Selected device: {self._device_buttons[key].text().splitlines()[0]}")
+            self.lblPedalStatus.setText(f"Selected device: {self._device_buttons[key].text().splitlines()[0]}")
         except Exception as e:
-            self.stateLabel.setText(f"Failed to select device: {e}")
+            self.lblPedalStatus.setText(f"Failed to select device: {e}")
 
-    def on_stop(self):
-        try:
-            data = self.api.ext_stop()
-            self.render(data)
-        except Exception as e:
-            self.stateLabel.setText(f"Stop error: {e}")
+    #def on_stop(self):
+    #    try:
+    #        data = self.api.ext_stop()
+    #        self.render(data)
+    #    except Exception as e:
+    #        self.lblPedalStatus.setText(f"Stop error: {e}")
 
     def render(self, st: dict):
         running = bool(st.get("external_running"))
@@ -675,28 +889,30 @@ class StartTab(QWidget):
                     self._apply_dev_styles()
 
             except Exception as e:
-                self.stateLabel.setText(f"Config fetch error: {e}")
+                self.lblPedalStatus.setText(f"Config fetch error: {e}")
 
         # 2) доступность действий
         has_device = bool(self._selected_key)
         self.btnStart.setEnabled((not running) and has_device)
-        self.btnStop.setEnabled(running)
+        #self.btnStop.setEnabled(running)
 
         # кнопки устройств блокируем во время работы
         for btn in self._device_buttons.values():
             btn.setEnabled(not running)
 
+        self._refresh_events_log()
+
         # 3) статус
         if running:
-            self.stateLabel.setText('The program is running. Go to WORK tab and press "START".')
+            self.lblPedalStatus.setText('The program is running. Go to WORK tab and press "START".')
         else:
             if has_device:
                 name = ""
                 if self._selected_key in self._device_buttons:
                     name = self._device_buttons[self._selected_key].text().splitlines()[0]
-                self.stateLabel.setText(f"Ready. Selected device: {name}. You can start the program.")
+                self.lblPedalStatus.setText(f"Готово. Вибраний пристрій: {name}. Натисніть 'ПОЧАТИ РОБОТУ' для запуску програми.")
             else:
-                self.stateLabel.setText("Select a device to enable Start.")
+                self.lblPedalStatus.setText("Оберіть девайс, та натисніть 'ПОЧАТИ РОБОТУ'.")
 
     
     def on_device_changed(self, idx: int):
@@ -709,9 +925,9 @@ class StartTab(QWidget):
         try:
             self.api.select(key)
             self._selected_key = key
-            self.stateLabel.setText(f"Selected device: {self.cmbDevices.currentText()}")
+            self.lblPedalStatus.setText(f"Selected device: {self.cmbDevices.currentText()}")
         except Exception as e:
-            self.stateLabel.setText(f"Failed to select device: {e}")
+            self.lblPedalStatus.setText(f"Failed to select device: {e}")
 
 
 
@@ -730,6 +946,7 @@ class MainWindow(QMainWindow):
 
         # Основной лэйаут (без логотипа!)
         root = QVBoxLayout(self.frame)
+        #root.setSpacing(10)
         root.setContentsMargins(BORDER_W, BORDER_W, BORDER_W, BORDER_W)
 
         # Вкладки
@@ -862,9 +1079,12 @@ class MainWindow(QMainWindow):
                     self.show_service_tab()
 
         # 4) РЕНДЕР ВКЛАДОК (ровно один раз на тик)
-        self.tabWork.render(st)
-        self.tabStart.render(st)
-        self.tabService.render(st)
+        for tab in (self.tabWork, self.tabStart, self.tabService):
+            try:
+                tab.render(st)
+            except Exception as e:
+                # мягко логируем в консоль, чтобы не падать
+                print(f"[UI] render error in {tab.__class__.__name__}: {e}")
 
         # 5) ВИЗУАЛЬНОЕ СОСТОЯНИЕ РАМКИ
         any_alarm = any(

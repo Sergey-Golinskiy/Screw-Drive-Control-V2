@@ -697,10 +697,10 @@ QTextEdit#eventsLog {
 
 
 
-        right.addWidget(self.btnStart, 1)
-        right.addWidget(self.btnStart, 2)
-        right.addWidget(self.lblEventsTitle, 0)
-        right.addWidget(self.txtEvents, 1)
+        #right.addWidget(self.btnStart, 1)
+        #right.addWidget(self.btnStart, 2)
+        #right.addWidget(self.lblEventsTitle, 0)
+        #right.addWidget(self.txtEvents, 1)
 
 
         #right.addWidget(self.btnStop,  1)
