@@ -15,6 +15,7 @@ import requests
 import json
 from pathlib import Path
 from functools import partial
+import html
 
 from PyQt5.QtCore import Qt, QTimer, QThread, QEvent, QCoreApplication, pyqtSignal as Signal
 QCoreApplication.setAttribute(Qt.AA_DisableHighDpiScaling, True)
@@ -36,7 +37,7 @@ except Exception:
 PEDAL_GPIO_PIN = 18        # BCM 18 (физический пин 12)
 PEDAL_ACTIVE_LOW = True    # если педаль замыкается на «землю» — оставь True
 PEDAL_PULSE_MS = 120       # длительность импульса
-
+EVENTS_LOG_PATH = Path("/tmp/screw_events.jsonl")
 # ================== Конфиг ==================
 API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000/api")
 POLL_MS   = 1000
@@ -656,16 +657,42 @@ class StartTab(QWidget):
         # --------- ПРАВАЯ КОЛОНКА (≈70%) — Кнопки START/STOP вертикально ----------
         right = QVBoxLayout(); right.setSpacing(18)
 
-        self.btnStart = big_button("START program")
-        self.btnStop  = big_button("STOP program")
-        self.btnStop.setObjectName("stopButton")
+        self.btnStart = big_button("ПОЧАТИ РОБОТУ")
+        #self.btnStop  = big_button("STOP program")
+        #self.btnStop.setObjectName("stopButton")
+        self.txtEvents = QTextEdit()
+        self.txtEvents.setReadOnly(True)
+        self.txtEvents.setLineWrapMode(QTextEdit.NoWrap)
+        self.txtEvents.setFont(QFont("DejaVu Sans Mono", 10))
+        self.txtEvents.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.txtEvents.setObjectName("eventsLog")
+
+        # заголовок над логом (по желанию)
+        from PyQt5.QtWidgets import QLabel
+        self.lblEventsTitle = QLabel("Последние события")
+        self.lblEventsTitle.setStyleSheet("font: 600 12pt 'Montserrat Light Alt1'; margin-top:8px; margin-bottom:4px;")
+
+# стиль самого лога
+        self.txtEvents.setStyleSheet("""
+QTextEdit#eventsLog {
+    background: #0f1115;
+    color: #e6e6e6;
+    border: 1px solid #2b2f3a;
+    border-radius: 8px;
+    padding: 8px;
+}
+        """)
+
+        # добавляем в layout вкладки Start
+        root.addWidget(self.lblEventsTitle)
+        root.addWidget(self.txtEvents)
 
         # делаем кнопки побольше и с одинаковой высотой
         self.btnStart.setMinimumHeight(220)
-        self.btnStop.setMinimumHeight(220)
+        #self.btnStop.setMinimumHeight(220)
 
         right.addWidget(self.btnStart, 1)
-        right.addWidget(self.btnStop,  1)
+        #right.addWidget(self.btnStop,  1)
 
         # подпись состояния
         self.lblPedalStatus = QLabel("Status: unknown"); 
@@ -683,7 +710,7 @@ class StartTab(QWidget):
         self._device_buttons = {}   # key -> QPushButton
 
         self.btnStart.clicked.connect(self.on_start)
-        self.btnStop.clicked.connect(self.on_stop)
+        #self.btnStop.clicked.connect(self.on_stop)
 
         # первичный рендер (чтоб сразу увидеть устройства, если API доступен)
         try:
@@ -704,6 +731,71 @@ class StartTab(QWidget):
                 self.on_started()
         except Exception as e:
             self.lblPedalStatus.setText(f"Failed to start the program: {e}")
+
+    def _read_log_tail(self, path: Path, max_lines: int = 80) -> list[str]:
+        """Быстро читаем последние max_lines строк из JSONL-файла."""
+        if not path.exists():
+            return ["(лог пока пуст)"]
+        # безопасно и без больших затрат по памяти
+        lines = []
+        with path.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                lines.append(line.rstrip("\n"))
+                if len(lines) > max_lines * 2:
+                    # контролируем рост списка, сдвигая окно
+                    lines = lines[-max_lines*2:]
+        return lines[-max_lines:] or ["(нет записей)"]
+
+    def _format_event_line(self, line: str) -> str:
+        """Парсим JSONL и возвращаем HTML для QTextEdit."""
+        import json, datetime
+        try:
+            evt = json.loads(line)
+            # поля времени
+            ts = evt.get("ts") or evt.get("time") or ""
+            if isinstance(ts, (int, float)):
+                ts = datetime.datetime.fromtimestamp(ts).isoformat(timespec="seconds")
+            ts = str(ts)
+
+            # уровень/имя/сообщение
+            level = (evt.get("level") or evt.get("lvl") or "").upper() or "INFO"
+            name  = evt.get("event") or evt.get("type") or evt.get("name") or "event"
+            msg   = evt.get("msg") or evt.get("message") or ""
+
+            # экранируем пользовательский текст
+            ts_h   = html.escape(ts)
+            level_h= html.escape(level)
+            name_h = html.escape(str(name))
+            msg_h  = html.escape(str(msg))
+
+            # цвета уровней (тёмная тема)
+            color = {
+                "ERROR": "#ff6b6b",
+                "WARN":  "#ffc857",
+                "WARNING":"#ffc857",
+                "INFO":  "#e6e6e6",
+                "DEBUG": "#9fb3c8",
+            }.get(level, "#e6e6e6")
+
+            head = f"[{ts_h}] {level_h}"
+            body = f"{name_h} — {msg_h}" if msg_h else name_h
+
+            return f'<span style="color:{color}">{head}  {body}</span>'
+        except Exception:
+            # не-JSON — отдаём как есть, но экранируем
+            return f'<span style="color:#e6e6e6">{html.escape(line)}</span>'
+
+    def _refresh_events_log(self):
+        lines = self._read_log_tail(EVENTS_LOG_PATH, max_lines=100)
+        html_lines = [self._format_event_line(ln) for ln in lines]
+        self.txtEvents.setHtml("<br>".join(html_lines))
+
+        # прокрутка в самый низ
+        cursor = self.txtEvents.textCursor()
+        cursor.movePosition(cursor.End)
+        self.txtEvents.setTextCursor(cursor)
+
+
 
         # --- создание/перестройка списка устройств слева ---
     def _rebuild_devices(self, devices: list[dict]):
@@ -750,12 +842,12 @@ class StartTab(QWidget):
         except Exception as e:
             self.lblPedalStatus.setText(f"Failed to select device: {e}")
 
-    def on_stop(self):
-        try:
-            data = self.api.ext_stop()
-            self.render(data)
-        except Exception as e:
-            self.lblPedalStatus.setText(f"Stop error: {e}")
+    #def on_stop(self):
+    #    try:
+    #        data = self.api.ext_stop()
+    #        self.render(data)
+    #    except Exception as e:
+    #        self.lblPedalStatus.setText(f"Stop error: {e}")
 
     def render(self, st: dict):
         running = bool(st.get("external_running"))
@@ -784,11 +876,13 @@ class StartTab(QWidget):
         # 2) доступность действий
         has_device = bool(self._selected_key)
         self.btnStart.setEnabled((not running) and has_device)
-        self.btnStop.setEnabled(running)
+        #self.btnStop.setEnabled(running)
 
         # кнопки устройств блокируем во время работы
         for btn in self._device_buttons.values():
             btn.setEnabled(not running)
+
+        self._refresh_events_log()
 
         # 3) статус
         if running:
