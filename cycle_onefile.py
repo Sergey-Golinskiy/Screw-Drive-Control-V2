@@ -901,9 +901,6 @@ def main():
         raise SystemExit(2)
     print("=== OK: X_OK + Y_OK + ok READY отримані ===")
 
-    # Стартуем сторожок
-    wd = MotorWatchdog(ser, trg, period_s=1.0)
-    wd.start()
 
     #time.sleep(5.0)
     time.sleep(2.0)
@@ -1048,10 +1045,6 @@ def main():
             pass
         try:
             set_cycle_busy(False)
-        except Exception:
-            pass
-        try:
-            wd.stop()
         except Exception:
             pass
         try:
