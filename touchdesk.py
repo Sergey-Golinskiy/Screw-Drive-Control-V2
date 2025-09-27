@@ -668,9 +668,8 @@ class StartTab(QWidget):
         self.txtEvents.setObjectName("eventsLog")
 
         # заголовок над логом (по желанию)
-        from PyQt5.QtWidgets import QLabel
-        self.lblEventsTitle = QLabel("Последние события")
-        self.lblEventsTitle.setStyleSheet("font: 600 12pt 'Montserrat Light Alt1'; margin-top:8px; margin-bottom:4px;")
+        self.lblEventsTitle = QLabel("Останні події")
+        self.lblEventsTitle.setStyleSheet("font: 400 10pt 'Montserrat Light Alt1'; margin-top:30px; margin-bottom:4px;")
 
 # стиль самого лога
         self.txtEvents.setStyleSheet("""
@@ -699,6 +698,11 @@ QTextEdit#eventsLog {
 
 
         right.addWidget(self.btnStart, 1)
+        right.addWidget(self.btnStart, 2)
+        right.addWidget(self.lblEventsTitle, 0)
+        right.addWidget(self.txtEvents, 1)
+
+
         #right.addWidget(self.btnStop,  1)
 
         # подпись состояния
@@ -717,6 +721,7 @@ QTextEdit#eventsLog {
         self._device_buttons = {}   # key -> QPushButton
 
         self.btnStart.clicked.connect(self.on_start)
+        QTimer.singleShot(0, self._resize_events_to_half)
         #self.btnStop.clicked.connect(self.on_stop)
 
         # первичный рендер (чтоб сразу увидеть устройства, если API доступен)
@@ -724,6 +729,12 @@ QTextEdit#eventsLog {
             self.render(self.api.status())
         except Exception:
             pass
+
+    def _resize_events_to_half(self):
+        """Подгоняет высоту лога примерно под половину высоты кнопки START."""
+        h_btn = self.btnStart.height() or self.btnStart.sizeHint().height()
+        self.txtEvents.setFixedHeight(max(120, int(h_btn * 0.5)))  # не меньше 120 px для читаемости
+
 
 
     def on_start(self):
