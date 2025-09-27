@@ -430,8 +430,6 @@ QLabel#statusBadge[variant="danger"] {
         self.lblPedalStatus.setProperty("variant", variant)
         self.lblPedalStatus.style().unpolish(self.lblPedalStatus)
         self.lblPedalStatus.style().polish(self.lblPedalStatus)
-        if self._pedal_locked and can and (phase in ("ready", "")) and not busy:
-            self._pedal_locked = False
 
 
 
@@ -439,6 +437,9 @@ QLabel#statusBadge[variant="danger"] {
         busy = bool(st.get("cycle_busy"))
         # когда busy=True — делаем кнопку зелёной
         self.btnPedal.setProperty("ok", busy)
+
+        if self._pedal_locked and can and (phase in ("ready", "")) and not busy:
+            self._pedal_locked = False
 
         # актуальность «Стоп скрипта» как раньше
         self.btnKill.setProperty("ok", running)
@@ -966,9 +967,12 @@ class MainWindow(QMainWindow):
                     self.show_service_tab()
 
         # 4) РЕНДЕР ВКЛАДОК (ровно один раз на тик)
-        self.tabWork.render(st)
-        self.tabStart.render(st)
-        self.tabService.render(st)
+        for tab in (self.tabWork, self.tabStart, self.tabService):
+            try:
+                tab.render(st)
+            except Exception as e:
+                # мягко логируем в консоль, чтобы не падать
+                print(f"[UI] render error in {tab.__class__.__name__}: {e}")
 
         # 5) ВИЗУАЛЬНОЕ СОСТОЯНИЕ РАМКИ
         any_alarm = any(
