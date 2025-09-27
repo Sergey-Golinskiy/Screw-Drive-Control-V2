@@ -928,7 +928,7 @@ def main():
         ser.reset_input_buffer()
     except Exception:
         pass
-
+    time.sleep(5.0)
     # ЖДЁМ БАННЕР ТОЛЬКО ОДИН РАЗ
     #if not wait_ready(ser, timeout=5.0):
      #   ev_err("READY_TIMEOUT", "Не дочекалися 'ok READY' від контролера")
