@@ -896,7 +896,7 @@ def main():
     print("=== OK: X_OK + Y_OK + ok READY отримані ===")
 
     #time.sleep(5.0)
-    time.sleep(1.0)
+    time.sleep(2.0)
     # 3) базовая инициализация координатной системы
     # 1.6 Хоуминг G28 и ожидание IN_HOME_POS / ok
     if not home_to_zero(ser, timeout=10.0):
