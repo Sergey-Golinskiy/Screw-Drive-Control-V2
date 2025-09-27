@@ -12,7 +12,7 @@ if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
 import socket
 import os, sys, socket, re, time
 import requests
-
+from pathlib import Path
 from functools import partial
 
 from PyQt5.QtCore import Qt, QTimer, QThread, QEvent, QCoreApplication, pyqtSignal as Signal
@@ -892,10 +892,7 @@ class MainWindow(QMainWindow):
             self.tabs.setTabEnabled(svc_idx, not running)
 
         # 7) Автопрыжок на WORK при переходе в RUNNING
-        at_work = bool(
-        sensors.get("IN_WORK_POS") or
-        (sensors.get("PED_X_IN_POS") and sensors.get("PED_Y_IN_POS"))
-        )
+        at_work = Path("/tmp/at_work_xy").exists()
         if running and at_work and self.tabs.currentIndex() != 0:
             self.tabs.blockSignals(True)
             self.tabs.setCurrentIndex(0)

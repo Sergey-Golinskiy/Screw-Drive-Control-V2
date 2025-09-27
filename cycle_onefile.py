@@ -12,7 +12,8 @@ import yaml
 from collections import deque
 import threading
 import json
-
+from pathlib import Path  # (если ещё не импортирован)
+import math
 from typing import Optional
 import RPi.GPIO as GPIO
 # ===[ ДОБАВЛЕНО: serial ]===
@@ -30,7 +31,7 @@ BUSY_FLAG = "/tmp/screw_cycle_busy"
 LAST_EXIT_PATH = Path("/tmp/last_exit.json")
 DEFAULT_CFG = Path(__file__).with_name("devices.yaml")
 TASK_PULSE_MS = 700  # п.7: импульс выбора задачи
-
+WORK_XY_FLAG_PATH = Path("/tmp/at_work_xy")  # флаг «стол в рабочей XY-точке»
 EVENT_LOG_PATH = Path("/tmp/screw_events.jsonl")
 EVENT_BUFFER_SIZE = 200  # сколько последних событий держать в памяти
 
@@ -131,6 +132,32 @@ def set_cycle_busy(on: bool):
                 pass
     except Exception:
         pass
+
+def set_at_work_xy(on: bool):
+    """Установить/сбросить флаг «мы стоим в рабочей XY-точке»."""
+    try:
+        if on:
+            WORK_XY_FLAG_PATH.write_text("1")
+        else:
+            try:
+                WORK_XY_FLAG_PATH.unlink()
+            except FileNotFoundError:
+                pass
+    except Exception:
+        pass
+
+def schedule_at_work_flag(dist_mm: float, feed_mm_min: int, pad_s: float = 0.2):
+    """
+    Поставить флаг через оценочное время перемещения.
+    feed в F — мм/мин → t = (dist/feed)*60 + небольшой запас.
+    """
+    f = max(1, int(feed_mm_min or 1))
+    t = max(0.2, (dist_mm / f) * 60.0 + pad_s)
+    def _arm():
+        time.sleep(t)
+        set_at_work_xy(True)
+    threading.Thread(target=_arm, daemon=True).start()
+
 
 def is_port_open(host="127.0.0.1", port=8765, timeout=0.2) -> bool:
     try:
@@ -838,6 +865,7 @@ def main():
     args = parser.parse_args()
 
     ev_info("BOOT", "Скрипт циклу запущено")
+    set_at_work_xy(False)
 
     devices = load_devices_config()
     dev = devices.get(args.device)
@@ -929,6 +957,7 @@ def main():
         while True:
             # ——— ожидание запуска ———
             set_cycle_busy(False)
+            set_at_work_xy(False)
             print("[cycle] Чекаю педаль/START ...")
             if not wait_pedal_or_command(io, trg):
                 ev_info("ABORT_IDLE", "Старт не отримано — виходжу")
