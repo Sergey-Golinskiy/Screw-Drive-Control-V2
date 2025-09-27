@@ -17,16 +17,8 @@ from typing import Optional
 import RPi.GPIO as GPIO
 # ===[ ДОБАВЛЕНО: serial ]===
 import serial
-try:
-    import serial
-except Exception:
-    serial = None
 
 import socket
-try:
-    import socket
-except Exception:
-    socket = None
 
 # =====================[ ТРИГГЕР ]=====================
 TRIGGER_HOST = "127.0.0.1"
@@ -35,7 +27,7 @@ TRIGGER_PORT = 8765
 # =====================[ КОНФИГ ]=====================
 RELAY_ACTIVE_LOW = True  # твоя 8-релейка, как правило, LOW-trigger
 BUSY_FLAG = "/tmp/screw_cycle_busy"
-
+LAST_EXIT_PATH = Path("/tmp/last_exit.json")
 DEFAULT_CFG = Path(__file__).with_name("devices.yaml")
 TASK_PULSE_MS = 700  # п.7: импульс выбора задачи
 
@@ -64,10 +56,6 @@ SENSOR_PINS = {
     "AREA_SENSOR":  17,  # Штора безопасности. сенсор OPEN=преград нет, все ок, CLOSE=преграда, стоп
 }
 
-# Парные взаимоблокировки (оставили как в базе; сейчас R02/R03 не конфликтуют, но пусть будет)
-MUTEX_GROUPS = [
-    ("R02_C1_UP", "R03_C1_DOWN"),
-]
 
 SENSOR_BOUNCE_MS = 20
 POLL_INTERVAL_MS = 5
@@ -122,6 +110,15 @@ def ev_info(code, msg, **kw):  STATUS.emit(code, "INFO",  msg, **kw)
 def ev_warn(code, msg, **kw):  STATUS.emit(code, "WARN",  msg, **kw)
 def ev_err(code, msg, **kw):   STATUS.emit(code, "ERROR", msg, **kw)
 def ev_alarm(code, msg, **kw): STATUS.emit(code, "ALARM", msg, **kw)
+
+def write_exit_reason(code: str, msg: str, extra: dict | None = None):
+    data = {"ts": ts(), "code": code, "msg": msg, "extra": extra or {}}
+    try:
+        with LAST_EXIT_PATH.open("w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"[{ts()}] WARN: cannot write {LAST_EXIT_PATH}: {e}")
+
 
 def set_cycle_busy(on: bool):
     try:
@@ -532,24 +529,24 @@ def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 15.0) -> bool:
         ls = s.lower().replace("  ", " ").strip()
 
         # --- OK маркеры
-        if "MOT_X_OK" in ls and not got_x:
+        if "mot_x_ok" in ls and not got_x:
             got_x = True
             ev_info("MOT_X_OK", "Мотор X готов")
             continue
 
-        if "MOT_Y_OK" in ls and not got_y:
+        if "mot_y_ok" in ls and not got_y:
             got_y = True
             ev_info("MOT_Y_OK", "Мотор Y готов")
             continue
 
-        if ls == "ok READY" and not got_rdy:
+        if ls == "ok ready" and not got_rdy:
             got_rdy = True
             # Можно залогировать при желании:
             ev_info("READY_OK", "Контролер готов (ok READY)")
             continue
 
         # --- ALARM маркеры → авто-сброс
-        if "MOT_X_ALARM" in ls:
+        if "mot_x_alarm" in ls:
             x_alarm_seen = True
             ev_info("MOT_X_ALARM", "ALARM на осі X — виконуємо скидання")
             try:
@@ -561,7 +558,7 @@ def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 15.0) -> bool:
             # Не выходим — продолжаем цикл, ждём MOT_X_OK
             continue
 
-        if "MOT_Y_ALARM" in ls:
+        if "mot_y_alarm" in ls:
             y_alarm_seen = True
             ev_info("MOT_Y_ALARM", "ALARM на осі Y — виконуємо скидання")
             try:
@@ -923,11 +920,13 @@ def main():
     ser = open_serial()
     print(f"[{ts()}] Serial відкрито")
 
+    time.sleep(1.0)
+
     # СНАЧАЛА почистим входной буфер (если там был мусор/хвост от ресета)
-    #try:
-    #    ser.reset_input_buffer()
-    #except Exception:
-    #    pass
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
     
     # ЖДЁМ БАННЕР ТОЛЬКО ОДИН РАЗ
     #if not wait_ready(ser, timeout=5.0):
