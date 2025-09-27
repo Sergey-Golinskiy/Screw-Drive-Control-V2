@@ -863,10 +863,7 @@ def main():
     #if not go_work(ser, timeout=10.0):
     #    raise SystemExit(2)
 
-    print("=== Старт скрипта ===")
-    send_cmd(ser, "G28")   # хоуминг
-    print("=== Пішов в хоум ===")
-    ev_info("HOME", "Хоуминг выполнен")
+    
     #send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
     #ev_info("WORK", "Систему переведено у робочий пресет")
 
