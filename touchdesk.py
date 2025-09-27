@@ -283,8 +283,8 @@ class WorkTab(QWidget):
         root.addLayout(row, 1)
         root.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
 
-        self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
-        root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
+        #self.stateLabel = QLabel("Status: unknown"); self.stateLabel.setObjectName("state")
+        #root.addWidget(self.stateLabel, 0, Qt.AlignLeft)
 
         self.btnPedal.clicked.connect(self.on_pedal)
         self.btnKill.clicked.connect(self.on_kill)
@@ -294,7 +294,7 @@ class WorkTab(QWidget):
             # Не даём эмулировать педаль до «готовности»
             if not self.btnPedal.isEnabled():
                 self.stateLabel.setText("Not ready yet (homing/positioning).")
-            return
+                return
             # Проверим, запущен ли внешний процесс — чтобы не жать в пустоту
             running = False
             try:
@@ -359,6 +359,7 @@ class WorkTab(QWidget):
 
     def render(self, st: dict):
         running = bool(st.get("external_running"))
+        #running = bool(st.get("external_running"))
         #self.stateLabel.setText("Status: " + ("PROGRAM RUNNING" if running else "PROGRAM STOPPED"))
         # === NEW: применим статус «готовности/хоминга» из /tmp/ui_status.json ===
         try:
@@ -600,7 +601,7 @@ class StartTab(QWidget):
         # подпись состояния
         self.stateLabel = QLabel("Status: unknown"); 
         self.stateLabel.setObjectName("state")
-        #right.addWidget(self.stateLabel, 0, Qt.AlignLeft)
+        right.addWidget(self.stateLabel, 0, Qt.AlignLeft)
 
         # собрать две колонки в корневой лэйаут (30/70 через стили растяжения)
         root.addLayout(left, 3)
