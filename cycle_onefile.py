@@ -862,6 +862,8 @@ def main():
     trg = StartTrigger(TRIGGER_HOST, TRIGGER_PORT)
     trg.start()
 
+    ui_status_update(status_text="Перевыряю наявність зжатого повітря", can_tighten=False, phase="check_pneumatics")
+
     # 1.1 Проверка стартовой пневматики (UP=CLOSE, DOWN=OPEN)
     if not check_pneumatics_start(io):
     # причина уже записана write_exit_reason(...), сразу выходим
@@ -871,14 +873,17 @@ def main():
     if not cyl_down_up(io):
     # причина уже записана, выходим
         raise SystemExit(2)
-
+    
+    ui_status_update(status_text="Обираю таску для закручування 0", can_tighten=False, phase="select_task0")
     # 1.3 Импульс таски-0 (500 мс)
     select_task0(io, ms=500)
 
+    ui_status_update(status_text="Відкриваю serial-порт", can_tighten=False, phase="open_serial")
 
 # 2) открыть serial и проверить готовность контроллера
     print(f"[{ts()}] Відкриваю serial-порт {SERIAL_PORT} @ {SERIAL_BAUD}")
     ser = open_serial()
+    ui_status_update(status_text="Serial-порт выдкрито", can_tighten=False, phase="serial_opened")
     print(f"[{ts()}] Serial відкрито")
 
     #time.sleep(1.0)
@@ -907,6 +912,7 @@ def main():
     # 1.6–1.7 Ждём MOT_X_OK/MOT_Y_OK/ok READY (с авто-RESET при *_ALARM)
    # после: ser = open_serial(); print("Serial відкрито")
     #time.sleep(1.0)
+    ui_status_update(status_text="Перевыряю моторы", can_tighten=False, phase="check_motors")
     if not wait_motors_ok_and_ready(ser, timeout=15.0):
         raise SystemExit(2)
     print("=== OK: X_OK + Y_OK + ok READY отримані ===")
@@ -977,6 +983,7 @@ def main():
                 # быстрый safety-чек сразу после перемещения
                 if area_armed and io.sensor_state("AREA_SENSOR"):
                     ev_alarm("AREA_TRIP", "Спрацював захисний сенсор. Зупинка. РУКИ ГЕТЬ.")
+                    ui_status_update(status_text="Спрацював захисний сенсор. Зупинка. РУКИ ГЕТЬ.", can_tighten=False, phase="area_trip")
                     io.set_relay("R06_DI1_POT", False)
                     io.set_relay("R04_C2", False)
                     try: wait_sensor(io, "GER_C2_UP", True, 2.0)
@@ -994,6 +1001,7 @@ def main():
                     # перед подачей — ещё раз safety
                     if area_armed and io.sensor_state("AREA_SENSOR"):
                         ev_alarm("AREA_TRIP", "Спрацював захисний сенсор перед подачею. Зупинка. РУКИ ГЕТЬ.")
+                        ui_status_update(status_text="Спрацював захисний сенсор. Зупинка. РУКИ ГЕТЬ.", can_tighten=False, phase="area_trip")
                         io.set_relay("R06_DI1_POT", False)
                         io.set_relay("R04_C2", False)
                         try: wait_sensor(io, "GER_C2_UP", True, 2.0)
@@ -1004,7 +1012,8 @@ def main():
 
                     # подача винта до импульса IND_SCRW
                     if not feed_until_detect(io):
-                        ev_alarm("FEED_FAIL", "Подача винта неуспешна — аварийный выход")
+                        ev_alarm("FEED_FAIL", "Подача гвинта неуспішна - аварійний вихід")
+                        ui_status_update(status_text="Подача гвинта неуспішна - аварійний вихід", can_tighten=False, phase="feed_fail")
                         send_cmd(ser, "WORK")
                         abort = True
                         break
@@ -1012,6 +1021,7 @@ def main():
                     # перед закруткой — снова safety
                     if area_armed and io.sensor_state("AREA_SENSOR"):
                         ev_alarm("AREA_TRIP", "Спрацював захисний сенсор перед закручуванням. Зупинка. РУКИ ГЕТЬ.")
+                        ui_status_update(status_text="Спрацював захисний сенсор. Зупинка. РУКИ ГЕТЬ.", can_tighten=False, phase="area_trip")
                         io.set_relay("R06_DI1_POT", False)
                         io.set_relay("R04_C2", False)
                         try: wait_sensor(io, "GER_C2_UP", True, 2.0)
@@ -1028,6 +1038,7 @@ def main():
 
                     if not ok_torque:
                         ev_err("TORQUE_FAIL", "Момент не досягнуто/аварія під час процесу — Зупинка. РУКИ ГЕТЬ.")
+                        ui_status_update(status_text="Спрацював захисний сенсор. Зупинка. РУКИ ГЕТЬ.", can_tighten=False, phase="area_trip")
                         send_cmd(ser, "WORK")
                         abort = True
                         break
