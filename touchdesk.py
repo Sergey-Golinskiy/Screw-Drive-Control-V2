@@ -270,8 +270,8 @@ class WorkTab(QWidget):
         root.addWidget(self.ipLabel, 0, Qt.AlignLeft)
 
         row = QHBoxLayout(); row.setSpacing(18)
-        self.btnPedal = big_button("Tighten the screws (pedal emulation)")
-        self.btnKill  = big_button("STOP script")
+        self.btnPedal = big_button("ЗАКРУТИТИ ГВИНТИ")
+        self.btnKill  = big_button("ЗУПИНИТИ")
         # Блокируем педаль до «готовности»
         self.btnPedal.setEnabled(False)
         self.lblPedalStatus = QLabel("Поле статусу...")
