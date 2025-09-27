@@ -293,6 +293,52 @@ def wait_ready(ser: serial.Serial, timeout: float = 5.0) -> bool:
     print("[SER] TIMEOUT: не отримали 'ok READY'")
     return False
 
+def home_to_zero(ser: serial.Serial, timeout: float = 30.0) -> bool:
+    """
+    Отправляем 'G28' и ждём:
+      1) 'IN_HOME_POS' (фактический выезд в нули),
+      2) затем 'ok' (успешное завершение).
+    Если видим 'HOME_NOT_FOUND' или 'err ...' — считаем ошибкой и НЕ продолжаем.
+    """
+    # на всякий случай очистим входной буфер
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+
+    # отправить G28
+    ser.write(b"G28\n")
+    t_end = time.time() + timeout
+    got_in_home = False
+
+    while time.time() < t_end:
+        s = ser.readline().decode(errors="ignore").strip()
+        if not s:
+            continue
+        print(f"[SER] {s}")
+        ls = s.lower()
+
+        if "home_not_found" in ls:
+            ev_err("HOME_NOT_FOUND", "Контролер не знайшов домашню позицію (HOME_NOT_FOUND)", popup=True)
+            return False
+
+        if "in_home_pos" in ls and not got_in_home:
+            got_in_home = True
+            ev_info("IN_HOME_POS", "Стіл у нульових координатах")
+            # продолжаем читать до финального ok
+
+        if s.startswith("err"):
+            ev_err("HOME_ERR", f"Помилка під час G28: {s}", popup=True)
+            return False
+
+        # успешное завершение — только когда уже был IN_HOME_POS и пришло 'ok'
+        if s.startswith("ok") and got_in_home:
+            ev_info("HOME_OK", "Хоумінг завершено (IN_HOME_POS → ok)")
+            return True
+
+    ev_err("HOME_TIMEOUT", f"Не дочекалися IN_HOME_POS/ok за {timeout}s", popup=True)
+    return False
+
 
 def send_cmd(ser: serial.Serial, line: str):
     """Отправить команду и дождаться ok/err; печатаем ответы."""
