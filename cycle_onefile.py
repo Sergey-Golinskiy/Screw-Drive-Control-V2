@@ -910,7 +910,7 @@ def main():
     ser = open_serial()
     print(f"[{ts()}] Serial відкрито")
 
-    time.sleep(1.0)
+    #time.sleep(1.0)
 
     # СНАЧАЛА почистим входной буфер (если там был мусор/хвост от ресета)
     try:
