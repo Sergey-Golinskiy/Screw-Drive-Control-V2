@@ -315,6 +315,90 @@ def send_cmd(ser: serial.Serial, line: str):
         if s.startswith("ok") or s.startswith("err"):
             break
 
+def home_to_zero(ser: serial.Serial, timeout: float = 30.0) -> bool:
+    """
+    1.6 Отправляем 'G28' и ждём:
+      - 'IN_HOME_POS' (факт физ. выхода в нули)
+      - затем 'ok' (успешное завершение команды)
+    Если встречаем 'HOME_NOT_FOUND' или 'err ...' — считаем ошибкой и выходим.
+    """
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+
+    # отправили G28
+    payload = b"G28\n"
+    ser.write(payload)
+
+    t_end = time.time() + timeout
+    got_in_home = False
+
+    while time.time() < t_end:
+        s = ser.readline().decode(errors="ignore").strip()
+        if not s:
+            continue
+        print(f"[SER] {s}")
+        ls = s.lower().strip()
+
+        if "home_not_found" in ls:
+            msg = "Контролер не знайшов домашню позицію (HOME_NOT_FOUND)"
+            ev_err("HOME_NOT_FOUND", msg, popup=True)
+            write_exit_reason("home_not_found", msg, {})
+            return False
+
+        if "in_home_pos" in ls:
+            got_in_home = True
+            ev_info("IN_HOME_POS", "Стіл у нульових координатах")
+
+        if s.startswith("err"):
+            msg = f"Помилка під час G28: {s}"
+            ev_err("HOME_ERR", msg, popup=True)
+            write_exit_reason("home_err", msg, {})
+            return False
+
+        # успешное завершение — когда уже был IN_HOME_POS и пришло 'ok'
+        if s.startswith("ok") and got_in_home:
+            ev_info("HOME_OK", "Хоумінг завершено (IN_HOME_POS → ok)")
+            return True
+
+    msg = f"Не дочекалися IN_HOME_POS/ok за {timeout}s"
+    ev_err("HOME_TIMEOUT", msg, popup=True)
+    write_exit_reason("home_timeout", msg, {"timeout_s": timeout})
+    return False
+
+def go_work(ser: serial.Serial, timeout: float = 10.0) -> bool:
+    """
+    1.7 Відправляємо 'WORK' і чекаємо 'ok'.
+    """
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+
+    ser.write(b"WORK\n")
+    t_end = time.time() + timeout
+
+    while time.time() < t_end:
+        s = ser.readline().decode(errors="ignore").strip()
+        if not s:
+            continue
+        print(f"[SER] {s}")
+        if s.startswith("ok"):
+            ev_info("WORK_OK", "Систему переведено у робочий пресет (ok)")
+            return True
+        if s.startswith("err"):
+            msg = f"Помилка при переході у WORK: {s}"
+            ev_err("WORK_ERR", msg, popup=True)
+            write_exit_reason("work_err", msg, {})
+            return False
+
+    msg = f"Не отримали 'ok' на WORK за {timeout}s"
+    ev_err("WORK_TIMEOUT", msg, popup=True)
+    write_exit_reason("work_timeout", msg, {"timeout_s": timeout})
+    return False
+
+
 def move_xy(ser: serial.Serial, x: float, y: float, f: int = MOVE_F):
     send_cmd(ser, f"G X{x} Y{y} F{f}")
 
@@ -350,6 +434,172 @@ def wait_new_press(io: IOController, sensor_name: str, timeout: float | None) ->
             print(f"[wait_new_press] TIMEOUT: {sensor_name} не натиснута")
             return False
         time.sleep(0.01)
+
+def check_pneumatics_start(io: "IOController") -> bool:
+    """
+    1.1 Перед открытием serial:
+        GER_C2_UP == CLOSE (True) и GER_C2_DOWN == OPEN (False).
+        Если не так — popup в UI и фиксируем причину, далее выходим из main().
+    """
+    up = io.sensor_state("GER_C2_UP")      # True = CLOSE
+    down = io.sensor_state("GER_C2_DOWN")  # True = CLOSE
+
+    if up is True and down is False:
+        ev_info("PNEUM_START_OK", "Стартові стани валідні (UP=CLOSE, DOWN=OPEN)")
+        return True
+
+    msg = ("Перевірте пневматику: на старті очікуємо GER_C2_UP=CLOSE, "
+           "GER_C2_DOWN=OPEN. Скрипт зупинено.")
+    ev_err("PNEUMATICS_NOT_READY", msg, popup=True,
+           expect_up=True, expect_down=False, actual_up=up, actual_down=down)
+    write_exit_reason("pneumatics_not_ready", msg,
+                      {"expect_up": True, "expect_down": False,
+                       "actual_up": up, "actual_down": down})
+    return False
+
+def cyl_down_up(io: "IOController", timeout: float = TIMEOUT_SEC) -> bool:
+    """
+    1.2 Включаем R04_C2 (вниз) до GER_C2_DOWN=CLOSE, затем выключаем (вверх)
+        до GER_C2_UP=CLOSE.
+    """
+    # ВНИЗ
+    io.set_relay("R04_C2", True)
+    if not wait_sensor(io, "GER_C2_DOWN", True, timeout):
+        io.set_relay("R04_C2", False)
+        msg = f"Не досягли GER_C2_DOWN=CLOSE за {timeout}s"
+        ev_err("C2_NO_DOWN", msg, popup=True)
+        write_exit_reason("c2_no_down", msg, {})
+        return False
+
+    # ВВЕРХ
+    io.set_relay("R04_C2", False)
+    if not wait_sensor(io, "GER_C2_UP", True, timeout):
+        msg = f"Не досягли GER_C2_UP=CLOSE за {timeout}s"
+        ev_err("C2_NO_UP", msg, popup=True)
+        write_exit_reason("c2_no_up", msg, {})
+        return False
+
+    ev_info("PNEUM_DU_OK", "Циліндр: вниз/вгору виконано")
+    return True
+
+def select_task0(io: "IOController", ms: int = 500) -> None:
+    """
+    1.3 Імпульс R07_DI5_TSK0 на 500 мс (застосувати таску 0).
+    """
+    try:
+        io.pulse("R07_DI5_TSK0", ms=ms)
+        ev_info("TASK0_SELECT", "Застосовано таск 0", ms=ms)
+    except Exception as e:
+        ev_warn("TASK0_PULSE_FAIL", f"Не вдалося подати імпульс таски 0: {e}")
+
+def wait_motors_ok_and_ready(ser: serial.Serial, timeout: float = 15.0) -> bool:
+    """
+    Ждём, пока прошивка пришлёт (в любом порядке):
+      - 'MOT_X_OK'
+      - 'MOT_Y_OK'
+      - 'ok READY'
+
+    Дополнительно (п.1.5.1):
+      Если увидели 'MOT_X_ALARM'/'MOT_Y_ALARM' — отправляем 'MOT_X_RESET'/'MOT_Y_RESET'
+      и продолжаем ждать соответствующие 'MOT_*_OK'.
+
+    Возвращает True если все три маркера пришли до таймаута.
+    При таймауте — пишет ev_err с popup и возвращает False.
+    """
+    # На всякий случай очистим входной буфер перед ожиданием
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+
+    t_end   = time.time() + timeout
+    got_x   = False
+    got_y   = False
+    got_rdy = False
+
+    x_alarm_seen = False
+    y_alarm_seen = False
+
+    while time.time() < t_end:
+        raw = ser.readline()
+        if not raw:
+            continue
+        s = raw.decode(errors="ignore").strip()
+        if not s:
+            continue
+
+        print(f"[SER] {s}")
+        ls = s.lower().replace("  ", " ").strip()
+
+        # --- OK маркеры
+        if "mot_x_ok" in ls and not got_x:
+            got_x = True
+            ev_info("MOT_X_OK", "Мотор X готов")
+            continue
+
+        if "mot_y_ok" in ls and not got_y:
+            got_y = True
+            ev_info("MOT_Y_OK", "Мотор Y готов")
+            continue
+
+        if ls == "ok ready" and not got_rdy:
+            got_rdy = True
+            # Можно залогировать при желании:
+            ev_info("READY_OK", "Контролер готов (ok READY)")
+            continue
+
+        # --- ALARM маркеры → авто-сброс
+        if "mot_x_alarm" in ls:
+            x_alarm_seen = True
+            ev_info("MOT_X_ALARM", "ALARM на осі X — виконуємо скидання")
+            try:
+                ser.write(b"MOT_X_RESET\n")
+                ser.flush()
+            except Exception as e:
+                ev_err("MOT_X_RESET_FAIL", f"Помилка відправки MOT_X_RESET: {e}", popup=True)
+                return False
+            # Не выходим — продолжаем цикл, ждём MOT_X_OK
+            continue
+
+        if "mot_y_alarm" in ls:
+            y_alarm_seen = True
+            ev_info("MOT_Y_ALARM", "ALARM на осі Y — виконуємо скидання")
+            try:
+                ser.write(b"MOT_Y_RESET\n")
+                ser.flush()
+            except Exception as e:
+                ev_err("MOT_Y_RESET_FAIL", f"Помилка відправки MOT_Y_RESET: {e}", popup=True)
+                return False
+            # Не выходим — продолжаем цикл, ждём MOT_Y_OK
+            continue
+
+        # Можно обработать 'err ...' строки, если они у тебя бывают:
+        if ls.startswith("err"):
+            ev_err("SER_ERR", f"Контролер відповів помилкою: {s}", popup=True)
+            return False
+
+        # Иные строки просто игнорируем и читаем дальше
+
+        # Условие успешного выхода — все три маркера получены
+        if got_x and got_y and got_rdy:
+            return True
+
+    # Таймаут ожидания
+    ev_err("READY_TIMEOUT",
+           f"Не отримали всі маркери (X_OK={got_x}, Y_OK={got_y}, READY={got_rdy}) за {timeout}s",
+           popup=True, x_ok=got_x, y_ok=got_y, ready=got_rdy,
+           x_alarm=x_alarm_seen, y_alarm=y_alarm_seen)
+    # Если ты ведёшь файл с причинами — можно записать:
+    try:
+        write_exit_reason("ready_timeout",
+                          "Таймаут очікування MOT_X_OK/MOT_Y_OK/ok READY",
+                          {"x_ok": got_x, "y_ok": got_y, "ready": got_rdy,
+                           "x_alarm_seen": x_alarm_seen, "y_alarm_seen": y_alarm_seen,
+                           "timeout_s": timeout})
+    except Exception:
+        pass
+    return False
+
 
 class StartTrigger:
     def __init__(self, host: str = TRIGGER_HOST, port: int = TRIGGER_PORT):
@@ -653,6 +903,21 @@ def main():
     trg = StartTrigger(TRIGGER_HOST, TRIGGER_PORT)
     trg.start()
 
+    # 1.1 Проверка стартовой пневматики (UP=CLOSE, DOWN=OPEN)
+    if not check_pneumatics_start(io):
+    # причина уже записана write_exit_reason(...), сразу выходим
+        raise SystemExit(2)
+
+    # 1.2 Прогон цилиндра вниз→вверх
+    if not cyl_down_up(io):
+    # причина уже записана, выходим
+        raise SystemExit(2)
+
+    # 1.3 Импульс таски-0 (500 мс)
+    select_task0(io, ms=500)
+
+
+
     # 2) открыть serial и проверить готовность контроллера
     print(f"[{ts()}] Відкриваю serial-порт {SERIAL_PORT} @ {SERIAL_BAUD}")
     ser = open_serial()
@@ -665,20 +930,36 @@ def main():
         pass
 
     # ЖДЁМ БАННЕР ТОЛЬКО ОДИН РАЗ
-    if not wait_ready(ser, timeout=5.0):
-        ev_err("READY_TIMEOUT", "Не дочекалися 'ok READY' від контролера")
-        trg.stop()
-        io.cleanup()
-        try: ser.close()
-        except Exception: pass
+    #if not wait_ready(ser, timeout=5.0):
+     #   ev_err("READY_TIMEOUT", "Не дочекалися 'ok READY' від контролера")
+     #   trg.stop()
+     #   io.cleanup()
+     #   try: ser.close()
+     #   except Exception: pass
+     #   raise SystemExit(2)
+    time.sleep(1.0)   # ← твой пункт 1.6 «ждем 1 сек»
+
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+
+    # 1.6–1.7 Ждём MOT_X_OK/MOT_Y_OK/ok READY (с авто-RESET при *_ALARM)
+    if not wait_motors_ok_and_ready(ser, timeout=15.0):
+        # причина уже залогирована внутри; закрытие ресурсов — в finally
         raise SystemExit(2)
 
+
+
     # 3) базовая инициализация координатной системы
-    print("=== Старт скрипта ===")
-    send_cmd(ser, "G28")   # хоуминг
-    ev_info("HOME", "Хоуминг выполнен")
-    send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
-    ev_info("WORK", "Систему переведено у робочий пресет")
+    # 1.6 Хоуминг G28 и ожидание IN_HOME_POS / ok
+    if not home_to_zero(ser, timeout=30.0):
+        # причина уже записана, выходим; закрытие — в finally
+        raise SystemExit(2)
+
+    # 1.7 Переход у WORK (ждём 'ok')
+    if not go_work(ser, timeout=10.0):
+        raise SystemExit(2)
 
     # локальный хелпер перемещения (если у тебя есть глобальный move_xy — можешь использовать его)
     def _move_xy(ser_, x, y, f=None):
