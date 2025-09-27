@@ -773,13 +773,13 @@ def main():
         pass
 
     # Ждём MOT_X_OK/MOT_Y_OK/ok READY (порядок не важен)
-    if not wait_motors_ok_and_ready(ser, timeout=8.0):
+    #if not wait_motors_ok_and_ready(ser, timeout=8.0):
         # ev_err уже записан внутри, здесь — чистое завершение
         #trg.stop()
         #io.cleanup()
         #try: ser.close()
         #except Exception: pass
-        raise SystemExit(2)
+        #raise SystemExit(2)
 
     # 3) базовая инициализация координатной системы
     print("=== Старт скрипта ===")
