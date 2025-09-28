@@ -866,12 +866,47 @@ def main():
     trg = StartTrigger(TRIGGER_HOST, TRIGGER_PORT)
     trg.start()
 
-    ui_status_update(status_text="Перевыряю наявність зжатого повітря", can_tighten=False, phase="check_pneumatics")
+    ui_status_update(status_text="Перевіряю наявність сжатого повітря", can_tighten=False, phase="check_pneumatics")
 
-    # 1.1 Проверка стартовой пневматики (UP=CLOSE, DOWN=OPEN)
-    if not check_pneumatics_start(io):
-    # причина уже записана write_exit_reason(...), сразу выходим
+    # 1.1 Перевірка стартової пневматики (UP=CLOSE, DOWN=OPEN) — inline
+    up   = io.sensor_state("GER_C2_UP")      # True = CLOSE
+    down = io.sensor_state("GER_C2_DOWN")    # True = CLOSE
+    if up is True and down is False:
+        ev_info("PNEUM_START_OK", "Стартові стани валідні (UP=CLOSE, DOWN=OPEN)")
+    else:
+        # 1) статус для UI
+        err_msg = "Аварія: скоріш за все не підключене повітря"
+        ui_status_update(status_text=err_msg, can_tighten=False, phase="error_no_air")
+
+        # 2) лог + причина завершення
+        details = {
+            "expect_up": True, "expect_down": False,
+            "actual_up": up, "actual_down": down
+        }
+        ev_err("PNEUMATICS_NOT_READY",
+            "Перевірте пневматику: на старті очікуємо GER_C2_UP=CLOSE, GER_C2_DOWN=OPEN.",
+            popup=True, **details)
+        write_exit_reason("pneumatics_not_ready", err_msg, details)
+
+    # 3) безопасное состояние: момент OFF, цилиндр вверх
+        try:
+            io.set_relay("R06_DI1_POT", False)
+            io.set_relay("R04_C2", False)
+        except Exception:
+            pass
+
+        # 4) аккуратное завершение
+        try:
+            trg.stop()
+        except Exception:
+            pass
+        try:
+            io.cleanup()
+        except Exception:
+            pass
+
         raise SystemExit(2)
+
 
     # 1.2 Прогон цилиндра вниз→вверх
     if not cyl_down_up(io):
