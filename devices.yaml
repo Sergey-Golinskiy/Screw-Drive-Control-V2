@@ -9,19 +9,17 @@ devices:
 #      y: 320
 #      f: 10000 
     program:
-      - { type: "free",  x: 29.5, y: 150, f: 30000 }
-      - { type: "work",  x: 29.5, y: 109, f: 30000 }
-      - { type: "free",  x: 29.5, y: 120, f: 30000 }
-      - { type: "free",  x: 138.5, y: 120, f: 30000 }
-      - { type: "work",  x: 138.5, y: 110, f: 30000 }
-      - { type: "free",  x: 165, y: 110, f: 30000 }
-      - { type: "free",  x: 165, y: 52, f: 30000 }
-      - { type: "work",  x: 138.5, y: 52, f: 30000 }
-      - { type: "free",  x: 138.5, y: 40, f: 30000 }
-      - { type: "free",  x: 29.5, y: 40, f: 30000 }
-      - { type: "work",  x: 29.5, y: 53, f: 30000 }
-      - { type: "free",  x: 5, y: 53, f: 30000 }
-      - { type: "free",  x: 5, y: 100, f: 30000 }
+      - { type: "free",  x: 5, y: 53, f: 60000 }
+      - { type: "work",  x: 29, y: 52.5, f: 60000 }
+      - { type: "free",  x: 29, y: 45, f: 60000 }
+      - { type: "free",  x: 139, y: 45, f: 60000 }
+      - { type: "work",  x: 139, y: 51, f: 60000 }
+      - { type: "free",  x: 157, y: 51, f: 60000 }
+      - { type: "free",  x: 157, y: 110, f: 60000 }
+      - { type: "work",  x: 139, y: 110, f: 60000 }
+      - { type: "free",  x: 139, y: 115, f: 60000 }
+      - { type: "free",  x: 29, y: 115, f: 60000 }
+      - { type: "work",  x: 29, y: 108.5, f: 60000 }
 #  - key: "MCO_4holes_test"
 #    name: "MCO_not_working"
 #    holes: 2
