@@ -964,6 +964,10 @@ class MainWindow(QMainWindow):
 
         
         self.tabs = tabs
+        # --- автопереход на START по специфическим ошибкам ---
+        self._autoBackTimer = QTimer(self)
+        self._autoBackTimer.setSingleShot(True)
+        self._autoBackTimer.timeout.connect(self._switch_to_start_tab)
 
         # --- состояние показа сервис-вкладки ---
         self.service_visible = True   # временно True, чтобы убрать корректно
@@ -1022,6 +1026,18 @@ class MainWindow(QMainWindow):
         self.tabs.setTabToolTip(idx, "Сервіс та діагностика")
         self.service_visible = True
 
+    def _switch_to_start_tab(self):
+        """Переключает на вкладку START (если есть)."""
+        try:
+            idx = self.tabs.indexOf(self.tabStart)
+            if idx != -1 and self.tabs.currentIndex() != idx:
+                self.tabs.blockSignals(True)
+                self.tabs.setCurrentIndex(idx)
+                self.tabs.blockSignals(False)
+        except Exception:
+            pass
+
+
     def hide_service_tab(self):
         """Скрыть вкладку SERVICE (если показана)."""
         idx = self.tabs.indexOf(self.tabService)
@@ -1044,7 +1060,7 @@ class MainWindow(QMainWindow):
             st = self.api.status()
         except Exception:
             self.set_border("alarm")
-            return
+            return     
 
         # 2) Базовые флаги
         running = bool(st.get("external_running"))
@@ -1052,6 +1068,25 @@ class MainWindow(QMainWindow):
         # ВНИМАНИЕ: имя датчика педали должно совпадать с тем, что отдаёт /api/status
         # Если у тебя другое имя (например, "PEDAL"), поменяй ключ ниже:
         pedal_pressed = bool(sensors.get("PED_START"))
+
+            # === ЧИТАЕМ ui_status.json, чтобы отреагировать на фазу error_no_air ===
+        phase = ""
+        try:
+            if UI_STATUS_PATH.exists():
+                ui = json.loads(UI_STATUS_PATH.read_text())
+                phase = (ui.get("phase") or "").lower()
+        except Exception:
+            phase = ""
+
+        # если цикл сообщил «нет воздуха» — запланировать автопрыжок на START через 5 сек
+        if phase == "error_no_air":
+            if not self._autoBackTimer.isActive():
+                self._autoBackTimer.start(5000)   # 5 секунд
+        else:
+            # любая другая фаза — отменяем запланированный автопереход, если был
+            if self._autoBackTimer.isActive():
+                self._autoBackTimer.stop()
+
 
         # 3) ЛОГИКА ВИДИМОСТИ SERVICE
         if running:
