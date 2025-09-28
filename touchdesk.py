@@ -480,7 +480,7 @@ class ServiceTab(QWidget):
         self.setStyleSheet("""
         ServiceTab QLabel { color: #ffffff; }
         """)
-        self.lblIp.setStyleSheet("color: #eef3ff; font-weight: 600;")
+        
 
         # ---- Network / IP card ----
         self.netCard = make_card("Мережа")
@@ -492,6 +492,7 @@ class ServiceTab(QWidget):
         row.addWidget(self.btnIpRefresh)
         net.addLayout(row)
         right.addWidget(self.netCard)
+        self.lblIp.setStyleSheet("color: #eef3ff; font-weight: 600;")
 
         # таймер авто-обновления IP
         self._ipTimer = QTimer(self)
