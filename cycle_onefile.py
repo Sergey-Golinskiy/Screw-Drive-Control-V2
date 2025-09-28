@@ -1045,8 +1045,8 @@ def main():
         if ls == "ok ready":
             if not got_ready:
                 got_ready = True
-                ev_info("READY_OK", "Контролер готов (ok READY)")
-                ui_status_update(status_text="Контролер готов (ok READY)", can_tighten=False, phase="ready_ok")
+                ev_info("READY_OK", "Контролер готовий (ok READY)")
+                ui_status_update(status_text="Контроллер готовий (ok READY)", can_tighten=False, phase="ready_ok")
 
             if got_x_ok and got_y_ok and got_ready:
                 print("=== OK: X_OK + Y_OK + ok READY отримані ===")
