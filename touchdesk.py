@@ -475,11 +475,11 @@ class ServiceTab(QWidget):
         left.addWidget(self.relaysCard, 1)
 
         # ---- Network / IP card ----
-        self.netCard = make_card("Network")
+        self.netCard = make_card("Мережа")
         net = self.netCard.layout()
         row = QHBoxLayout()
         self.lblIp = QLabel("IP: —")
-        self.btnIpRefresh = QPushButton("Refresh")
+        self.btnIpRefresh = QPushButton("Оновити")
         row.addWidget(self.lblIp, 1)
         row.addWidget(self.btnIpRefresh)
         net.addLayout(row)
