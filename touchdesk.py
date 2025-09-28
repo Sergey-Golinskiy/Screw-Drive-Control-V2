@@ -569,6 +569,40 @@ class ServiceTab(QWidget):
             self.log_line(f"[HTTP {e.response.status_code}] Ручне керування недоступне КОЛИ ПРОГРАМА ПРАЦЮЄ")
         except Exception as e:
             self.log_line(f"[ERROR] relay: {e}")
+   
+    def _get_ip_address(self) -> str:
+        """
+        Возвращает 'красивый' текущий IP хоста.
+        1) пытаемся через 'hostname -I' (даёт все адреса без лишнего);
+        2) если пусто — делаем UDP-‘подключение’ к 8.8.8.8:80 и берём локальный IP сокета;
+        3) если совсем плохо — 127.0.0.1.
+        """
+        try:
+            import subprocess, shlex
+            out = subprocess.check_output(shlex.split("hostname -I"), timeout=0.5).decode("utf-8", "ignore").strip()
+            if out:
+                # берём первый непетлевой адрес
+                parts = [p for p in out.split() if not p.startswith("127.")]
+                if parts:
+                    return parts[0]
+        except Exception:
+            pass
+        # fallback через UDP ‘connect’
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(0.2)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip or "127.0.0.1"
+        except Exception:
+            return "127.0.0.1"
+
+    def _refresh_ip(self):
+        ip = self._get_ip_address()
+        self.lblIp.setText(f"IP: {ip}")
+
 
     # --- serial ---
     def fill_ports(self):
@@ -766,38 +800,6 @@ QTextEdit#eventsLog {
         self.txtEvents.setFixedHeight(max(120, int(h_btn * 0.5)))  # не меньше 120 px для читаемости
 
 
-    def _get_ip_address(self) -> str:
-        """
-        Возвращает 'красивый' текущий IP хоста.
-        1) пытаемся через 'hostname -I' (даёт все адреса без лишнего);
-        2) если пусто — делаем UDP-‘подключение’ к 8.8.8.8:80 и берём локальный IP сокета;
-        3) если совсем плохо — 127.0.0.1.
-        """
-        try:
-            import subprocess, shlex
-            out = subprocess.check_output(shlex.split("hostname -I"), timeout=0.5).decode("utf-8", "ignore").strip()
-            if out:
-                # берём первый непетлевой адрес
-                parts = [p for p in out.split() if not p.startswith("127.")]
-                if parts:
-                    return parts[0]
-        except Exception:
-            pass
-        # fallback через UDP ‘connect’
-        try:
-            import socket
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(0.2)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip or "127.0.0.1"
-        except Exception:
-            return "127.0.0.1"
-
-    def _refresh_ip(self):
-        ip = self._get_ip_address()
-        self.lblIp.setText(f"IP: {ip}")
 
 
 
