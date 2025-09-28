@@ -476,6 +476,11 @@ class ServiceTab(QWidget):
         
         # Правая колонка — Serial
         right = QVBoxLayout(); right.setSpacing(18)
+        
+        self.setStyleSheet("""
+        ServiceTab QLabel { color: #ffffff; }
+        """)
+        self.lblIp.setStyleSheet("color: #eef3ff; font-weight: 600;")
 
         # ---- Network / IP card ----
         self.netCard = make_card("Мережа")
