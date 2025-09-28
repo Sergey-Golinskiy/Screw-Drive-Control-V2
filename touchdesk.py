@@ -473,6 +473,9 @@ class ServiceTab(QWidget):
         self.relaysGrid = QGridLayout(); self.relaysGrid.setHorizontalSpacing(8); self.relaysGrid.setVerticalSpacing(8)
         self.relaysCard.layout().addLayout(self.relaysGrid)
         left.addWidget(self.relaysCard, 1)
+        
+        # Правая колонка — Serial
+        right = QVBoxLayout(); right.setSpacing(18)
 
         # ---- Network / IP card ----
         self.netCard = make_card("Мережа")
@@ -498,8 +501,7 @@ class ServiceTab(QWidget):
         self._refresh_ip()
 
 
-        # Правая колонка — Serial
-        right = QVBoxLayout(); right.setSpacing(18)
+        
         self.serialCard = make_card("Arduino Serial")
         sc = self.serialCard.layout()
 
