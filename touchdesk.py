@@ -474,6 +474,30 @@ class ServiceTab(QWidget):
         self.relaysCard.layout().addLayout(self.relaysGrid)
         left.addWidget(self.relaysCard, 1)
 
+        # ---- Network / IP card ----
+        self.netCard = make_card("Network")
+        net = self.netCard.layout()
+        row = QHBoxLayout()
+        self.lblIp = QLabel("IP: —")
+        self.btnIpRefresh = QPushButton("Refresh")
+        row.addWidget(self.lblIp, 1)
+        row.addWidget(self.btnIpRefresh)
+        net.addLayout(row)
+        right.addWidget(self.netCard)
+
+        # таймер авто-обновления IP
+        self._ipTimer = QTimer(self)
+        self._ipTimer.setInterval(3000)      # каждые 3 секунды
+        self._ipTimer.timeout.connect(self._refresh_ip)
+        self._ipTimer.start()
+
+        # кнопка ручного обновления
+        self.btnIpRefresh.clicked.connect(self._refresh_ip)
+
+        # первичное заполнение
+        self._refresh_ip()
+
+
         # Правая колонка — Serial
         right = QVBoxLayout(); right.setSpacing(18)
         self.serialCard = make_card("Arduino Serial")
@@ -659,28 +683,7 @@ class StartTab(QWidget):
         # --------- ПРАВАЯ КОЛОНКА (≈70%) — Кнопки START/STOP вертикально ----------
         right = QVBoxLayout(); right.setSpacing(18)
 
-        # ---- Network / IP card ----
-        self.netCard = make_card("Network")
-        net = self.netCard.layout()
-        row = QHBoxLayout()
-        self.lblIp = QLabel("IP: —")
-        self.btnIpRefresh = QPushButton("Refresh")
-        row.addWidget(self.lblIp, 1)
-        row.addWidget(self.btnIpRefresh)
-        net.addLayout(row)
-        right.addWidget(self.netCard)
 
-        # таймер авто-обновления IP
-        self._ipTimer = QTimer(self)
-        self._ipTimer.setInterval(3000)      # каждые 3 секунды
-        self._ipTimer.timeout.connect(self._refresh_ip)
-        self._ipTimer.start()
-
-        # кнопка ручного обновления
-        self.btnIpRefresh.clicked.connect(self._refresh_ip)
-
-        # первичное заполнение
-        self._refresh_ip()
 
 
         self.btnStart = big_button("ПОЧАТИ РОБОТУ")
