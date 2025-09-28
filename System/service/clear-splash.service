@@ -1,0 +1,11 @@
+[Unit]
+Description=Clear splash when touchscreen is ready
+After=touchscreen.service
+PartOf=touchscreen.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/clear-splash.sh
+
+[Install]
+WantedBy=touchscreen.service

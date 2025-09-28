@@ -86,14 +86,9 @@ fi
 
 header "Loading logo setup"
 sudo mkdir -p /opt/splash
-sudo mkdir -p /etc/systemd/system/SD_touchdesk.service.d
 sudo cp /home/screwdrive/Screw-Drive-Control-V2/splash.png /opt/splash/splash.png
-sudo systemctl disable plymouth-start.service plymouth-quit.service plymouth-quit-wait.service --now || true
-sudo cp /home/screwdrive/Screw-Drive-Control-V2/System/SD_touchdesk.service.d/override.conf /etc/systemd/system/SD_touchdesk.service.d/override.conf
 sudo cp /home/screwdrive/Screw-Drive-Control-V2/System/clear-splash.sh /opt/splash/clear-splash.sh
-sudo cp /home/screwdrive/Screw-Drive-Control-V2/System/show-splash.sh /opt/splash/show-splash.sh
 sudo chmod +x /opt/splash/clear-splash.sh
-sudo chmod +x /opt/splash/show-splash.sh
 
 sudo apt purge -y plymouth plymouth-themes
 sudo rm -rf /usr/share/plymouth || true
@@ -106,6 +101,15 @@ sudo sed -i 's/$/ quiet loglevel=3 vt.global_cursor_default=0/' /boot/firmware/c
 
 sudo apt install -y fbi
 
+header "Setting up clear-splash.service"
+if [ -f ~/Screw-Drive-Control-V2/System/service/clear-splash.service ]; then
+  sudo cp ~/Screw-Drive-Control-V2/System/service/clear-splash.service /etc/systemd/system/clear-splash.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable clear-splash.service
+  sudo systemctl start clear-splash.service
+else
+  echo -e "\033[1;33m⚠️ clear-splash.service file not found. Skipping service setup.\033[0m"
+fi
 
 header "Setting up splashscreen.service"
 if [ -f ~/Screw-Drive-Control-V2/System/service/splashscreen.service ]; then
@@ -114,7 +118,7 @@ if [ -f ~/Screw-Drive-Control-V2/System/service/splashscreen.service ]; then
   sudo systemctl enable splashscreen.service
   sudo systemctl start splashscreen.service
 else
-  echo -e "\033[1;33m⚠️ splashscreenD.service file not found. Skipping service setup.\033[0m"
+  echo -e "\033[1;33m⚠️ splashscreen.service file not found. Skipping service setup.\033[0m"
 fi 
 
 
