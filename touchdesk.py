@@ -337,7 +337,7 @@ QLabel#statusBadge[variant="danger"] {
         try:
             # Не даём эмулировать педаль до «готовности»
             if not self.btnPedal.isEnabled():
-                self.lblPedalStatus.setText("Not ready yet (homing/positioning).")
+                self.lblPedalStatus.setText("Ще не готовий (наведення/позиціонування).")
                 return
             # Проверим, запущен ли внешний процесс — чтобы не жать в пустоту
             running = False
@@ -349,7 +349,7 @@ QLabel#statusBadge[variant="danger"] {
 
             if not running:
                 self.lblPedalStatus.setText(
-                'The script is not running. First, click "Start program" on the "Start" tab.'
+                'Скрипт не працює. Спочатку натисніть «Запустити програму» на вкладці «Пуск».'
                 )
                 return
 
@@ -361,12 +361,12 @@ QLabel#statusBadge[variant="danger"] {
 
             ok = send_start_trigger_with_retry()
             if ok:
-                self.lblPedalStatus.setText("START command sent (pedal emulation).")
+                self.lblPedalStatus.setText("Команда START надіслана (емуляція педалей).")
                 self.btnPedal.setEnabled(False)         # мгновенно «гасим» кнопку
                 self._pedal_locked = True               # <— ставим лок
                 self._pedal_lock_t0 = time.time()
             else:
-                self.lblPedalStatus.setText("Failed to send START (no response from loop).")
+                self.lblPedalStatus.setText("Не вдалося надіслати START (немає відповіді від циклу).")
 
             # Обновим статус для подсветки кнопок
             try:
@@ -376,7 +376,7 @@ QLabel#statusBadge[variant="danger"] {
                 pass
 
         except Exception as e:
-            self.lblPedalStatus.setText(f"Error sending START: {e}")
+            self.lblPedalStatus.setText(f"Помилка надсилання START: {e}")
 
 
 
@@ -387,7 +387,7 @@ QLabel#statusBadge[variant="danger"] {
             st = self.api.ext_stop()
             self.render(st)
         except Exception as e:
-            self.lblPedalStatus.setText(f"Stop error: {e}")
+            self.lblPedalStatus.setText(f"Помилка зупинки: {e}")
 
     def _read_ui_status_file(self) -> dict:
     
@@ -540,7 +540,7 @@ class ServiceTab(QWidget):
             data = self.api.relay(name, action, ms)
             self.render(data)
         except requests.HTTPError as e:
-            self.log_line(f"[HTTP {e.response.status_code}] manual control is not available WHEN THE PROGRAM IS RUNNING")
+            self.log_line(f"[HTTP {e.response.status_code}] Ручне керування недоступне КОЛИ ПРОГРАМА ПРАЦЮЄ")
         except Exception as e:
             self.log_line(f"[ERROR] relay: {e}")
 
@@ -639,7 +639,7 @@ class StartTab(QWidget):
         # --------- ЛЕВАЯ КОЛОНКА (≈30%) — Список устройств ----------
         left = QVBoxLayout(); left.setSpacing(12)
 
-        self.devCard = make_card("Devices")
+        self.devCard = make_card("Девайси")
         card_lay = self.devCard.layout()
 
         # прокручиваемая область с кнопками устройств
@@ -707,7 +707,7 @@ QTextEdit#eventsLog {
         #right.addWidget(self.btnStop,  1)
 
         # подпись состояния
-        self.lblPedalStatus = QLabel("Status: unknown"); 
+        self.lblPedalStatus = QLabel("Статус: unknown"); 
         self.lblPedalStatus.setObjectName("state")
         right.addWidget(self.lblPedalStatus, 0, Qt.AlignLeft)
 
@@ -740,21 +740,21 @@ QTextEdit#eventsLog {
 
     def on_start(self):
         if not self._selected_key:
-            self.lblPedalStatus.setText("Please select a device first.")
+            self.lblPedalStatus.setText("Спочатку виберіть пристрій.")
             return
         try:
-            self.lblPedalStatus.setText("Launching the program…")
+            self.lblPedalStatus.setText("Запуск програми…")
             self.api.ext_start()
-            self.lblPedalStatus.setText('The program is running. To begin working, click "START" on the Work tab.')
+            self.lblPedalStatus.setText('Програма запущена. Щоб розпочати роботу, натисніть кнопку «ПУСК» на вкладці «Робота».')
             if callable(self.on_started):
                 self.on_started()
         except Exception as e:
-            self.lblPedalStatus.setText(f"Failed to start the program: {e}")
+            self.lblPedalStatus.setText(f"Не вдалося запустити програму: {e}")
 
     def _read_log_tail(self, path: Path, max_lines: int = 80) -> list[str]:
         """Быстро читаем последние max_lines строк из JSONL-файла."""
         if not path.exists():
-            return ["(лог пока пуст)"]
+            return ["(лог поки порожній)"]
         # безопасно и без больших затрат по памяти
         lines = []
         with path.open("r", encoding="utf-8", errors="ignore") as f:
@@ -857,9 +857,9 @@ QTextEdit#eventsLog {
             self.api.select(key)
             self._selected_key = key
             self._apply_dev_styles()
-            self.lblPedalStatus.setText(f"Selected device: {self._device_buttons[key].text().splitlines()[0]}")
+            self.lblPedalStatus.setText(f"Вибраний пристрій: {self._device_buttons[key].text().splitlines()[0]}")
         except Exception as e:
-            self.lblPedalStatus.setText(f"Failed to select device: {e}")
+            self.lblPedalStatus.setText(f"Не вдалося вибрати пристрій: {e}")
 
     #def on_stop(self):
     #    try:
@@ -890,7 +890,7 @@ QTextEdit#eventsLog {
                     self._apply_dev_styles()
 
             except Exception as e:
-                self.lblPedalStatus.setText(f"Config fetch error: {e}")
+                self.lblPedalStatus.setText(f"Помилка отримання конфігурації: {e}")
 
         # 2) доступность действий
         has_device = bool(self._selected_key)
@@ -905,7 +905,7 @@ QTextEdit#eventsLog {
 
         # 3) статус
         if running:
-            self.lblPedalStatus.setText('The program is running. Go to WORK tab and press "START".')
+            self.lblPedalStatus.setText('Програма працює. Перейдіть на вкладку РОБОТА та натисніть «ПУСК».')
         else:
             if has_device:
                 name = ""
@@ -926,9 +926,9 @@ QTextEdit#eventsLog {
         try:
             self.api.select(key)
             self._selected_key = key
-            self.lblPedalStatus.setText(f"Selected device: {self.cmbDevices.currentText()}")
+            self.lblPedalStatus.setText(f"Вибраний пристрій: {self.cmbDevices.currentText()}")
         except Exception as e:
-            self.lblPedalStatus.setText(f"Failed to select device: {e}")
+            self.lblPedalStatus.setText(f"Не вдалося вибрати пристрій: {e}")
 
 
 
@@ -958,9 +958,9 @@ class MainWindow(QMainWindow):
         self.tabStart   = StartTab(self.api)
         self.tabService = ServiceTab(self.api)
 
-        tabs.addTab(self.tabWork,   "WORK")     # idx 0
-        tabs.addTab(self.tabStart,  "START")    # idx 1
-        tabs.addTab(self.tabService,"SERVICE")  # idx 2
+        tabs.addTab(self.tabWork,   "РОБОТА")     # idx 0
+        tabs.addTab(self.tabStart,  "ЗАПУСК")    # idx 1
+        tabs.addTab(self.tabService,"СЕРВІС")  # idx 2
 
         
         self.tabs = tabs
@@ -1018,8 +1018,8 @@ class MainWindow(QMainWindow):
         if self.service_visible:
             return
         # вставим в конец (после WORK и START)
-        idx = self.tabs.addTab(self.tabService, "SERVICE")
-        self.tabs.setTabToolTip(idx, "Service & diagnostics")
+        idx = self.tabs.addTab(self.tabService, "СЕРВІС")
+        self.tabs.setTabToolTip(idx, "Сервіс та діагностика")
         self.service_visible = True
 
     def hide_service_tab(self):

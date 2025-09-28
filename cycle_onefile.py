@@ -409,6 +409,7 @@ def check_pneumatics_start(io: "IOController") -> bool:
     down = io.sensor_state("GER_C2_DOWN")  # True = CLOSE
 
     if up is True and down is False:
+        ui_status_update(status_text="Стартові стани валідні (UP=CLOSE, DOWN=OPEN)", can_tighten=False, phase="ready_to_start_ok_pneumatics")
         ev_info("PNEUM_START_OK", "Стартові стани валідні (UP=CLOSE, DOWN=OPEN)")
         return True
 
