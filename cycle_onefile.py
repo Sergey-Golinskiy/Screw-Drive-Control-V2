@@ -866,8 +866,8 @@ def main():
     trg = StartTrigger(TRIGGER_HOST, TRIGGER_PORT)
     trg.start()
 
-    ui_status_update(status_text="Перевіряю наявність сжатого повітря", can_tighten=False, phase="check_pneumatics")
 
+    ui_status_update(status_text="Перевіряю наявність сжатого повітря", can_tighten=False, phase="check_pneumatics")
     # 1.1 Перевірка стартової пневматики (UP=CLOSE, DOWN=OPEN) — inline
     up   = io.sensor_state("GER_C2_UP")      # True = CLOSE
     down = io.sensor_state("GER_C2_DOWN")    # True = CLOSE
@@ -913,9 +913,11 @@ def main():
     # причина уже записана, выходим
         raise SystemExit(2)
     
+    ev_info("PNEUM_DU_OK", "Циліндр: вниз/вгору виконано")
     ui_status_update(status_text="Обираю таску для закручування 0", can_tighten=False, phase="select_task0")
     # 1.3 Импульс таски-0 (500 мс)
     select_task0(io, ms=500)
+    ev_info("TASK0_SELECT", "Застосовано таск 0", ms=500)
 
     ui_status_update(status_text="Відкриваю serial-порт", can_tighten=False, phase="open_serial")
 
@@ -952,9 +954,120 @@ def main():
    # после: ser = open_serial(); print("Serial відкрито")
     #time.sleep(1.0)
     ui_status_update(status_text="Перевіряю мотори", can_tighten=False, phase="check_motors")
-    if not wait_motors_ok_and_ready(ser, timeout=15.0):
+
+    # === inline: wait_motors_ok_and_ready(ser, timeout=15.0) ===
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+
+    t_end = time.time() + 15.0
+    got_x_ok = False
+    got_y_ok = False
+    got_ready = False
+    x_alarm_seen = False
+    y_alarm_seen = False
+
+    def _motors_fail_exit(msg: str):
+        # статусы/логи как при обычном фейле
+        ev_err("READY_TIMEOUT", msg, popup=True)
+        ui_status_update(status_text="Аварія: мотори не готові", can_tighten=False, phase="error_motors")
+        try: trg.stop()
+        except Exception: pass
+        try: io.cleanup()
+        except Exception: pass
+        try: ser.close()
+        except Exception: pass
         raise SystemExit(2)
-    print("=== OK: X_OK + Y_OK + ok READY отримані ===")
+
+    while time.time() < t_end:
+        # быстрый успех
+        if got_x_ok and got_y_ok and got_ready:
+            print("=== OK: X_OK + Y_OK + ok READY отримані ===")
+            break
+
+        raw = ser.readline()
+        if not raw:
+            continue
+        s = raw.decode(errors="ignore").strip()
+        if not s:
+            continue
+        print(f"[SER] {s}")
+        ls = s.lower().strip()
+
+        # --- ALARM → RESET ---
+        if "mot_x_alarm" in ls:
+            x_alarm_seen = True
+            ev_info("MOT_X_ALARM", "ALARM на осі X — виконуємо скидання")
+            ui_status_update(status_text="ALARM на осі X — виконуємо скидання", can_tighten=False, phase="mot_x_alarm")
+
+            try:
+                ser.write(b"MOT_X_RESET\n"); ser.flush()
+            except Exception as e:
+                ev_err("MOT_X_RESET_FAIL", f"Помилка відправки MOT_X_RESET: {e}", popup=True)
+                ui_status_update(status_text="Помилка відправки MOT_X_RESET", can_tighten=False, phase="error_mot_x_reset")
+                _motors_fail_exit("Помилка під час скидання ALARM на осі X")
+            continue
+
+        if "mot_y_alarm" in ls:
+            y_alarm_seen = True
+            ev_info("MOT_Y_ALARM", "ALARM на осі Y — виконуємо скидання")
+            ui_status_update(status_text="ALARM на осі Y — виконуємо скидання", can_tighten=False, phase="mot_y_alarm")
+            try:
+                ser.write(b"MOT_Y_RESET\n"); ser.flush()
+            except Exception as e:
+                ev_err("MOT_Y_RESET_FAIL", f"Помилка відправки MOT_Y_RESET: {e}", popup=True)
+                ui_status_update(status_text="Помилка відправки MOT_Y_RESET", can_tighten=False, phase="error_mot_y_reset")
+                _motors_fail_exit("Помилка під час скидання ALARM на осі Y")
+            continue
+
+        # --- OK маркеры ---
+        if "mot_x_ok" in ls:
+            if not got_x_ok:
+                got_x_ok = True
+                ev_info("MOT_X_OK", "Мотор X готовий")
+                ui_status_update(status_text="Мотор X готовий", can_tighten=False, phase="mot_x_ok")
+            if got_x_ok and got_y_ok and got_ready:
+                print("=== OK: X_OK + Y_OK + ok READY отримані ===")
+                break
+            continue
+
+        if "mot_y_ok" in ls:
+            if not got_y_ok:
+                got_y_ok = True
+                ev_info("MOT_Y_OK", "Мотор Y готовий")
+                ui_status_update(status_text="Мотор Y готовий", can_tighten=False, phase="mot_y_ok")
+            if got_x_ok and got_y_ok and got_ready:
+                print("=== OK: X_OK + Y_OK + ok READY отримані ===")
+                break
+            continue
+
+        if ls == "ok ready":
+            if not got_ready:
+                got_ready = True
+                ev_info("READY_OK", "Контролер готов (ok READY)")
+                ui_status_update(status_text="Контролер готов (ok READY)", can_tighten=False, phase="ready_ok")
+
+            if got_x_ok and got_y_ok and got_ready:
+                print("=== OK: X_OK + Y_OK + ok READY отримані ===")
+                break
+            continue
+
+        if ls.startswith("err"):
+            ev_err("SER_ERR", f"Контролер відповів помилкою: {s}", popup=True)
+            _motors_fail_exit("Помилка від контролера під час перевірки моторів")
+            ui_status_update(status_text="Помилка від контролера під час перевірки моторів", can_tighten=False, phase="error_controller")
+
+    # если цикл закончился без break → таймаут
+    if not (got_x_ok and got_y_ok and got_ready):
+        _motors_fail_exit(
+            f"Не отримали всі маркери за 15.0s "
+            f"(X_OK={got_x_ok}, Y_OK={got_y_ok}, READY={got_ready}; "
+            f"X_ALARM_SEEN={x_alarm_seen}, Y_ALARM_SEEN={y_alarm_seen})"
+        )
+        ui_status_update(status_text="Не отримали всі маркери за 15.0sв", can_tighten=False, phase="error_motors_timeout")
+# === /inline ===
+
 
 
     #time.sleep(5.0)

@@ -48,7 +48,7 @@ float SCAN_RANGE_Y_MM = 352.0f;
 float BACKOFF_MM      = 5.0f;
 float SLOW_MM_S       = 2.0f;
 
-float WORK_X_MM = 85.0f;
+float WORK_X_MM = 5.0f;
 float WORK_Y_MM = 350.0f;
 float WORK_F_MM_MIN = 60000;
 
@@ -351,7 +351,11 @@ bool resetMotor(char axis){
 void handleLine(String s){
   s.trim(); if(!s.length()) return;
 
-  // РђРєС‚СѓР°Р»РёР·РёСЂСѓРµРј ALM/OK РѕРґРЅРѕСЂР°Р·РѕРІС‹Рµ СЃРѕРѕР±С‰РµРЅРёСЏ
+  // === NEW: прямой статус по запросу, без триггера одноразовой отчетности ===
+  if(s=="MOT_X_STATUS"){ Serial.println(alarmX() ? F("MOT_X_ALARM") : F("MOT_X_OK")); return; }
+  if(s=="MOT_Y_STATUS"){ Serial.println(alarmY() ? F("MOT_Y_ALARM") : F("MOT_Y_OK")); return; }
+
+  // Актуализируем ALM/OK одноразовые сообщения (пусть остается как было)
   checkAlarmsAndReport();
 
   if(s=="MOT_X_RESET"){ resetMotor('X'); return; }
