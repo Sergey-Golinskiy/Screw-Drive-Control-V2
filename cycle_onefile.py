@@ -922,10 +922,53 @@ def main():
     ui_status_update(status_text="Відкриваю serial-порт", can_tighten=False, phase="open_serial")
 
 # 2) открыть serial и проверить готовность контроллера
+    #print(f"[{ts()}] Відкриваю serial-порт {SERIAL_PORT} @ {SERIAL_BAUD}")
+    #ser = open_serial()
+    #ui_status_update(status_text="Serial-порт выдкрито", can_tighten=False, phase="serial_opened")
+    #print(f"[{ts()}] Serial відкрито")
+
+
+
     print(f"[{ts()}] Відкриваю serial-порт {SERIAL_PORT} @ {SERIAL_BAUD}")
-    ser = open_serial()
-    ui_status_update(status_text="Serial-порт выдкрито", can_tighten=False, phase="serial_opened")
-    print(f"[{ts()}] Serial відкрито")
+    try:
+        ser = open_serial()
+        if ser is None:
+            raise RuntimeError("open_serial() повернула None")
+
+        # успех — статус и лог
+        ui_status_update(status_text="Serial-порт відкрито", can_tighten=False, phase="serial_opened")
+        ev_info("SER_OPENED", f"Serial відкрито: {SERIAL_PORT} @ {SERIAL_BAUD}")
+        print(f"[{ts()}] Serial відкрито")
+
+    except Exception as e:
+        # неуспех — статус для UI + лог + причина завершення
+        err_msg = f"Аварія: не вдалося відкрити serial ({SERIAL_PORT} @ {SERIAL_BAUD})"
+        ev_err("SERIAL_OPEN_FAIL", f"{err_msg}. Помилка: {e}", popup=True)
+
+        ui_status_update(
+            status_text=err_msg,
+            can_tighten=False,
+            phase="error_serial_open"
+        )
+
+        write_exit_reason(
+            "serial_open_fail",
+            err_msg,
+            {"port": SERIAL_PORT, "baud": SERIAL_BAUD, "error": str(e)}
+        )
+
+        # аккуратне згортання (якщо вже є ініціалізовані об’єкти)
+        try:
+            trg.stop()
+        except Exception:
+            pass
+        try:
+            io.cleanup()
+        except Exception:
+            pass
+
+        raise SystemExit(2)
+
 
     #time.sleep(1.0)
 
