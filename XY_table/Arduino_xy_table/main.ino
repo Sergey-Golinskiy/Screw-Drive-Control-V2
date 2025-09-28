@@ -38,7 +38,7 @@ float STEPS_PER_MM_X = 11.111f;
 float STEPS_PER_MM_Y = 20.0f;
 
 float MAX_FEED_MM_S  = 400.0f;
-float MAX_ACC_MM_S2  = 50000.0f;
+float MAX_ACC_MM_S2  = 60000.0f;
 
 float X_MIN_MM = 0.0f, X_MAX_MM = 165.0f;
 float Y_MIN_MM = 0.0f, Y_MAX_MM = 350.0f;
