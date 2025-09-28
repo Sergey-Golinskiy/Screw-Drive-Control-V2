@@ -504,6 +504,8 @@ class ServiceTab(QWidget):
         #self.edSend.installEventFilter(self)
         right.addWidget(self.serialCard, 1)
 
+
+
         root.addLayout(left, 2)
         root.addLayout(right, 1)
 
@@ -657,6 +659,30 @@ class StartTab(QWidget):
         # --------- ПРАВАЯ КОЛОНКА (≈70%) — Кнопки START/STOP вертикально ----------
         right = QVBoxLayout(); right.setSpacing(18)
 
+        # ---- Network / IP card ----
+        self.netCard = make_card("Network")
+        net = self.netCard.layout()
+        row = QHBoxLayout()
+        self.lblIp = QLabel("IP: —")
+        self.btnIpRefresh = QPushButton("Refresh")
+        row.addWidget(self.lblIp, 1)
+        row.addWidget(self.btnIpRefresh)
+        net.addLayout(row)
+        right.addWidget(self.netCard)
+
+        # таймер авто-обновления IP
+        self._ipTimer = QTimer(self)
+        self._ipTimer.setInterval(3000)      # каждые 3 секунды
+        self._ipTimer.timeout.connect(self._refresh_ip)
+        self._ipTimer.start()
+
+        # кнопка ручного обновления
+        self.btnIpRefresh.clicked.connect(self._refresh_ip)
+
+        # первичное заполнение
+        self._refresh_ip()
+
+
         self.btnStart = big_button("ПОЧАТИ РОБОТУ")
         #self.btnStop  = big_button("STOP program")
         #self.btnStop.setObjectName("stopButton")
@@ -735,6 +761,41 @@ QTextEdit#eventsLog {
         """Подгоняет высоту лога примерно под половину высоты кнопки START."""
         h_btn = self.btnStart.height() or self.btnStart.sizeHint().height()
         self.txtEvents.setFixedHeight(max(120, int(h_btn * 0.5)))  # не меньше 120 px для читаемости
+
+
+    def _get_ip_address(self) -> str:
+        """
+        Возвращает 'красивый' текущий IP хоста.
+        1) пытаемся через 'hostname -I' (даёт все адреса без лишнего);
+        2) если пусто — делаем UDP-‘подключение’ к 8.8.8.8:80 и берём локальный IP сокета;
+        3) если совсем плохо — 127.0.0.1.
+        """
+        try:
+            import subprocess, shlex
+            out = subprocess.check_output(shlex.split("hostname -I"), timeout=0.5).decode("utf-8", "ignore").strip()
+            if out:
+                # берём первый непетлевой адрес
+                parts = [p for p in out.split() if not p.startswith("127.")]
+                if parts:
+                    return parts[0]
+        except Exception:
+            pass
+        # fallback через UDP ‘connect’
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(0.2)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip or "127.0.0.1"
+        except Exception:
+            return "127.0.0.1"
+
+    def _refresh_ip(self):
+        ip = self._get_ip_address()
+        self.lblIp.setText(f"IP: {ip}")
+
 
 
 
