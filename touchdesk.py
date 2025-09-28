@@ -278,7 +278,6 @@ class WorkTab(QWidget):
         self._pedal_lock_t0 = 0.0      # когда залочили (секунды time.time())
         self._pedal_lock_timeout = 120 # страховочный авто-анлок через N секунд
         # Блокируем педаль до «готовности»
-        can = bool(ui.get("can_tighten", False))
         self.btnPedal.setEnabled(False)
         self.lblPedalStatus = QLabel("Поле статусу...")
         self.lblPedalStatus.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
