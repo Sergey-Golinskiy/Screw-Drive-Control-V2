@@ -31,7 +31,7 @@
 */
 #define RELAY_X_PIN 4
 #define RELAY_Y_PIN 5
-#define RELAY_ACTIVE_HIGH 0
+#define RELAY_ACTIVE_HIGH 1
 
 /* ===== CONFIG ===== */
 float STEPS_PER_MM_X = 20.0f;
