@@ -4,19 +4,19 @@ devices:
     name: "MCO_Back_M3x10"
     holes: 4
     program:
-      - { type: "free",  x: 5, y: 108.5, f: 60000 }
-      - { type: "work",  x: 29.5, y: 108.5, f: 60000 }
-      - { type: "free",  x: 29.5, y: 115, f: 60000 }
-      - { type: "free",  x: 139.5, y: 115, f: 60000 }
-      - { type: "work",  x: 139.5, y: 110, f: 60000 }
-      - { type: "free",  x: 157, y: 110, f: 60000 }
-      - { type: "free",  x: 157, y: 40, f: 60000 }
-      - { type: "free",  x: 139.5, y: 40, f: 60000 }
-      - { type: "work",  x: 139.5, y: 50.5, f: 60000 }
-      - { type: "free",  x: 139.5, y: 40, f: 60000 }
-      - { type: "free",  x: 29.5, y: 40, f: 60000 }
-      - { type: "work",  x: 29.5, y: 52, f: 60000 }
-      - { type: "free",  x: 5, y: 52, f: 60000 }
+      - { type: "free",  x: 5, y: 108.5, f: 30000 }
+      - { type: "work",  x: 29.5, y: 108.5, f: 30000 }
+      - { type: "free",  x: 29.5, y: 115, f: 30000 }
+      - { type: "free",  x: 139.5, y: 115, f: 30000 }
+      - { type: "work",  x: 139.5, y: 110, f: 30000 }
+      - { type: "free",  x: 157, y: 110, f: 30000 }
+      - { type: "free",  x: 157, y: 40, f: 30000 }
+      - { type: "free",  x: 139.5, y: 40, f: 30000 }
+      - { type: "work",  x: 139.5, y: 50.5, f: 30000 }
+      - { type: "free",  x: 139.5, y: 40, f: 30000 }
+      - { type: "free",  x: 29.5, y: 40, f: 30000 }
+      - { type: "work",  x: 29.5, y: 52, f: 30000 }
+      - { type: "free",  x: 5, y: 52, f: 30000 }
 
 
 

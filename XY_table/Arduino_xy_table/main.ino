@@ -31,7 +31,7 @@
 */
 #define RELAY_X_PIN 4
 #define RELAY_Y_PIN 5
-#define RELAY_ACTIVE_HIGH 1
+#define RELAY_ACTIVE_HIGH 0
 
 /* ===== CONFIG ===== */
 float STEPS_PER_MM_X = 20.0f;
@@ -68,6 +68,9 @@ bool Y_ENDSTOP_ACTIVE_LOW = false;
 /* ===== Geometry tolerances ===== */
 float EPS_X_MM = 0.20f;
 float EPS_Y_MM = 0.20f;
+
+long EPS_X_STEPS = 0;
+long EPS_Y_STEPS = 0;
 
 /* ===== Globals ===== */
 AccelStepper stepX(AccelStepper::DRIVER, X_STEP, X_DIR);
@@ -165,6 +168,11 @@ void setup(){
   setupPins();
   setKinematicsMax();
 
+  EPS_X_STEPS = (long)ceilf(EPS_X_MM * STEPS_PER_MM_X);
+  EPS_Y_STEPS = (long)ceilf(EPS_Y_MM * STEPS_PER_MM_Y);
+  if (EPS_X_STEPS < 1) EPS_X_STEPS = 1;
+  if (EPS_Y_STEPS < 1) EPS_Y_STEPS = 1;
+
   // latch initial states
   (void)alarmX(); (void)alarmY(); (void)pedActiveX(); (void)pedActiveY();
 
@@ -220,70 +228,21 @@ bool runStep(bool checkEndstops=true){
 }
 
 /* ===== Guarded move with PED events ===== */
+/* ===== Blocking move without PED ===== */
 bool guardedMoveTo(float x_mm, float y_mm, float f_mm_min){
   if(estop){ Serial.println(F("err ESTOP")); return false; }
-  if(!checkAlarmsAndReport()){ return false; } // РїРµС‡Р°С‚СЊ ALARM СѓР¶Рµ СЃРґРµР»Р°РЅР°
+  if(!checkAlarmsAndReport()){ return false; } // ALARM уже сообщён
 
-  long targetX = (long)(constrain(x_mm, X_MIN_MM, X_MAX_MM) * STEPS_PER_MM_X);
-  long targetY = (long)(constrain(y_mm, Y_MIN_MM, Y_MAX_MM) * STEPS_PER_MM_Y);
-
-  bool trackX = (targetX != stepX.targetPosition());
-  bool trackY = (targetY != stepY.targetPosition());
-
-  if(trackX) Serial.println(F("PED_X_IN_WORK"));
-  if(trackY) Serial.println(F("PED_Y_IN_WORK"));
-
+  // спланировать цель с учётом лимитов и скорости
   movePlan(x_mm, y_mm, f_mm_min);
 
-  uint32_t tStart = millis();
-  bool xPosPrinted=false, yPosPrinted=false, xErr=false, yErr=false;
-  uint32_t tHoldX=0, tHoldY=0;
+  // крутить до прихода в цель, охраняя MIN-концевики
+  while(runStep(true)){ /* no-op */ }
 
-  while(true){
-    if(!checkAlarmsAndReport()) return false; // СЃС‚РѕРї РїРѕ Р°РІР°СЂРёРё
-
-    bool moving = runStep(true);
-
-    // X: СѓРґРµСЂР¶Р°РЅРёРµ + СЃР±СЂРѕСЃ, РµСЃР»Рё PED РѕС‚РїР°Р» РґРѕ РІС‹РґРµСЂР¶РєРё
-    if(trackX && !xPosPrinted){
-      bool ped_ok = pedActiveX();
-      bool geo_ok = atTargetXmm(x_mm);
-      if(ped_ok && geo_ok){
-        if(!tHoldX) tHoldX = millis();
-        if(millis()-tHoldX >= PED_SETTLE_MS){ Serial.println(F("PED_X_IN_POS")); xPosPrinted=true; }
-      } else {
-        tHoldX = 0;
-      }
-    }
-
-    // Y: СѓРґРµСЂР¶Р°РЅРёРµ + СЃР±СЂРѕСЃ, РµСЃР»Рё PED РѕС‚РїР°Р» РґРѕ РІС‹РґРµСЂР¶РєРё
-    if(trackY && !yPosPrinted){
-      bool ped_ok = pedActiveY();
-      bool geo_ok = atTargetYmm(y_mm);
-      if(ped_ok && geo_ok){
-        if(!tHoldY) tHoldY = millis();
-        if(millis()-tHoldY >= PED_SETTLE_MS){ Serial.println(F("PED_Y_IN_POS")); yPosPrinted=true; }
-      } else {
-        tHoldY = 0;
-      }
-    }
-
-
-    if(!moving){
-      if(trackX && !xPosPrinted){ Serial.println(F("PED_X_ERROR")); xErr=true; }
-      if(trackY && !yPosPrinted){ Serial.println(F("PED_Y_ERROR")); yErr=true; }
-      break;
-    }
-
-    if(millis() - tStart > PED_WAIT_TIMEOUT){
-      if(trackX && !xPosPrinted){ Serial.println(F("PED_X_ERROR")); xErr=true; }
-      if(trackY && !yPosPrinted){ Serial.println(F("PED_Y_ERROR")); yErr=true; }
-      break;
-    }
-  }
-
-  return !(xErr || yErr);
+  // успех
+  return true;
 }
+
 
 /* ===== Homing ===== */
 bool homeAxisToMin(AccelStepper& ax, uint8_t minPin, float spmm, float scanRangeMM, bool minActiveLow){
@@ -431,6 +390,11 @@ void handleLine(String s){
       i=j+1;
     }
     STEPS_PER_MM_X=xs; STEPS_PER_MM_Y=ys; setKinematicsMax();
+    // ← ВСТАВИТЬ ЗДЕСЬ:
+    EPS_X_STEPS = (long)ceilf(EPS_X_MM * STEPS_PER_MM_X);
+    EPS_Y_STEPS = (long)ceilf(EPS_Y_MM * STEPS_PER_MM_Y);
+    if (EPS_X_STEPS < 1) EPS_X_STEPS = 1;
+    if (EPS_Y_STEPS < 1) EPS_Y_STEPS = 1;
     Serial.println("ok"); return;
   }
 
@@ -481,21 +445,13 @@ void handleLine(String s){
       else if(t.startsWith("F")) f=t.substring(1).toFloat();
       i=j+1;}
     if(!checkAlarmsAndReport()) return;
+
     setFeed(f);
     stepX.move(stepX.currentPosition() + (long)(d*STEPS_PER_MM_X));
-    Serial.println(F("PED_X_IN_WORK"));
-    uint32_t t0=millis(); bool pos=false;
-    uint32_t tHold=0;
-    while(runStep(true)){
-      if(!checkAlarmsAndReport()) return;
-      if(pedActiveX()){
-        if(!tHold) tHold=millis();
-        if(millis()-tHold>=PED_SETTLE_MS && !pos){ Serial.println(F("PED_X_IN_POS")); pos=true; }
-      }
-      if(millis()-t0> PED_WAIT_TIMEOUT && !pos){ Serial.println(F("PED_X_ERROR")); break; }
-    }
+    while(runStep(true)){}        // ← просто доехать
     Serial.println("ok"); return;
   }
+  
   if(s.startsWith("DY ")){
     float d=0, f=600; int i=3;
     while(i<s.length()){ int j=s.indexOf(' ',i); if(j<0) j=s.length(); String t=s.substring(i,j);
@@ -503,19 +459,10 @@ void handleLine(String s){
       else if(t.startsWith("F")) f=t.substring(1).toFloat();
       i=j+1;}
     if(!checkAlarmsAndReport()) return;
+
     setFeed(f);
     stepY.move(stepY.currentPosition() + (long)(d*STEPS_PER_MM_Y));
-    Serial.println(F("PED_Y_IN_WORK"));
-    uint32_t t0=millis(); bool pos=false;
-    uint32_t tHold=0;
-    while(runStep(true)){
-      if(!checkAlarmsAndReport()) return;
-      if(pedActiveY()){
-        if(!tHold) tHold=millis();
-        if(millis()-tHold>=PED_SETTLE_MS && !pos){ Serial.println(F("PED_Y_IN_POS")); pos=true; }
-      }
-      if(millis()-t0> PED_WAIT_TIMEOUT && !pos){ Serial.println(F("PED_Y_ERROR")); break; }
-    }
+    while(runStep(true)){}        // ← просто доехать
     Serial.println("ok"); return;
   }
 

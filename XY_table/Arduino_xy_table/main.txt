@@ -34,11 +34,11 @@
 #define RELAY_ACTIVE_HIGH 0
 
 /* ===== CONFIG ===== */
-float STEPS_PER_MM_X = 11.111f;
+float STEPS_PER_MM_X = 20.0f;
 float STEPS_PER_MM_Y = 20.0f;
 
-float MAX_FEED_MM_S  = 400.0f;
-float MAX_ACC_MM_S2  = 50000.0f;
+float MAX_FEED_MM_S  = 600.0f;
+float MAX_ACC_MM_S2  = 90000.0f;
 
 float X_MIN_MM = 0.0f, X_MAX_MM = 165.0f;
 float Y_MIN_MM = 0.0f, Y_MAX_MM = 350.0f;
@@ -48,7 +48,7 @@ float SCAN_RANGE_Y_MM = 352.0f;
 float BACKOFF_MM      = 5.0f;
 float SLOW_MM_S       = 2.0f;
 
-float WORK_X_MM = 85.0f;
+float WORK_X_MM = 5.0f;
 float WORK_Y_MM = 350.0f;
 float WORK_F_MM_MIN = 60000;
 
@@ -64,6 +64,13 @@ bool Y_ENDSTOP_ACTIVE_LOW = false;
 #define POWER_UP_WAIT_MS   1500
 #define PED_WAIT_TIMEOUT   8000
 #define PED_SETTLE_MS      50
+
+/* ===== Geometry tolerances ===== */
+float EPS_X_MM = 0.20f;
+float EPS_Y_MM = 0.20f;
+
+long EPS_X_STEPS = 0;
+long EPS_Y_STEPS = 0;
 
 /* ===== Globals ===== */
 AccelStepper stepX(AccelStepper::DRIVER, X_STEP, X_DIR);
@@ -161,6 +168,11 @@ void setup(){
   setupPins();
   setKinematicsMax();
 
+  EPS_X_STEPS = (long)ceilf(EPS_X_MM * STEPS_PER_MM_X);
+  EPS_Y_STEPS = (long)ceilf(EPS_Y_MM * STEPS_PER_MM_Y);
+  if (EPS_X_STEPS < 1) EPS_X_STEPS = 1;
+  if (EPS_Y_STEPS < 1) EPS_Y_STEPS = 1;
+
   // latch initial states
   (void)alarmX(); (void)alarmY(); (void)pedActiveX(); (void)pedActiveY();
 
@@ -198,6 +210,12 @@ void movePlan(float x_mm, float y_mm, float f_mm_min){
   stepY.moveTo((long)(y_mm * STEPS_PER_MM_Y));
 }
 
+/* ===== Position helpers ===== */
+inline float posXmm(){ return ((float)stepX.currentPosition()) / STEPS_PER_MM_X; }
+inline float posYmm(){ return ((float)stepY.currentPosition()) / STEPS_PER_MM_Y; }
+inline bool atTargetXmm(float target_mm){ return fabsf(posXmm() - target_mm) <= EPS_X_MM; }
+inline bool atTargetYmm(float target_mm){ return fabsf(posYmm() - target_mm) <= EPS_Y_MM; }
+
 bool runStep(bool checkEndstops=true){
   if(checkEndstops){
     if(stepX.speed()<0 && endActive(X_MIN_PIN, X_ENDSTOP_ACTIVE_LOW)) stepX.stop();
@@ -234,23 +252,26 @@ bool guardedMoveTo(float x_mm, float y_mm, float f_mm_min){
 
     bool moving = runStep(true);
 
-    // X: СѓРґРµСЂР¶Р°РЅРёРµ + СЃР±СЂРѕСЃ, РµСЃР»Рё PED РѕС‚РїР°Р» РґРѕ РІС‹РґРµСЂР¶РєРё
-    if(trackX && !xPosPrinted){
-      if(pedActiveX()){
-        if(!tHoldX) tHoldX = millis();
-        if(millis()-tHoldX >= PED_SETTLE_MS){ Serial.println(F("PED_X_IN_POS")); xPosPrinted=true; }
+    // Внутри guardedMoveTo(x_mm, y_mm, f_mm_min) в основном цикле runStep(true)
+    if (trackX && !xPosPrinted) {
+      bool ped_ok = pedActiveX();
+      bool geo_ok = (labs(stepX.distanceToGo()) <= EPS_X_STEPS);  // <— КЛЮЧ
+      if (ped_ok && geo_ok) {
+        if (!tHoldX) tHoldX = millis();
+        if (millis() - tHoldX >= PED_SETTLE_MS) { Serial.println(F("PED_X_IN_POS")); xPosPrinted = true; }
       } else {
-        tHoldX = 0; // СЃР±СЂРѕСЃ СѓРґРµСЂР¶Р°РЅРёСЏ
+        tHoldX = 0;
       }
     }
 
-    // Y: СѓРґРµСЂР¶Р°РЅРёРµ + СЃР±СЂРѕСЃ, РµСЃР»Рё PED РѕС‚РїР°Р» РґРѕ РІС‹РґРµСЂР¶РєРё
-    if(trackY && !yPosPrinted){
-      if(pedActiveY()){
-        if(!tHoldY) tHoldY = millis();
-        if(millis()-tHoldY >= PED_SETTLE_MS){ Serial.println(F("PED_Y_IN_POS")); yPosPrinted=true; }
+    if (trackY && !yPosPrinted) {
+      bool ped_ok = pedActiveY();
+      bool geo_ok = (labs(stepY.distanceToGo()) <= EPS_Y_STEPS);  // <— КЛЮЧ
+      if (ped_ok && geo_ok) {
+        if (!tHoldY) tHoldY = millis();
+        if (millis() - tHoldY >= PED_SETTLE_MS) { Serial.println(F("PED_Y_IN_POS")); yPosPrinted = true; }
       } else {
-        tHoldY = 0; // СЃР±СЂРѕСЃ СѓРґРµСЂР¶Р°РЅРёСЏ
+        tHoldY = 0;
       }
     }
 
@@ -351,7 +372,11 @@ bool resetMotor(char axis){
 void handleLine(String s){
   s.trim(); if(!s.length()) return;
 
-  // РђРєС‚СѓР°Р»РёР·РёСЂСѓРµРј ALM/OK РѕРґРЅРѕСЂР°Р·РѕРІС‹Рµ СЃРѕРѕР±С‰РµРЅРёСЏ
+  // === NEW: прямой статус по запросу, без триггера одноразовой отчетности ===
+  if(s=="MOT_X_STATUS"){ Serial.println(alarmX() ? F("MOT_X_ALARM") : F("MOT_X_OK")); return; }
+  if(s=="MOT_Y_STATUS"){ Serial.println(alarmY() ? F("MOT_Y_ALARM") : F("MOT_Y_OK")); return; }
+
+  // Актуализируем ALM/OK одноразовые сообщения (пусть остается как было)
   checkAlarmsAndReport();
 
   if(s=="MOT_X_RESET"){ resetMotor('X'); return; }
@@ -413,6 +438,11 @@ void handleLine(String s){
       i=j+1;
     }
     STEPS_PER_MM_X=xs; STEPS_PER_MM_Y=ys; setKinematicsMax();
+    // ← ВСТАВИТЬ ЗДЕСЬ:
+    EPS_X_STEPS = (long)ceilf(EPS_X_MM * STEPS_PER_MM_X);
+    EPS_Y_STEPS = (long)ceilf(EPS_Y_MM * STEPS_PER_MM_Y);
+    if (EPS_X_STEPS < 1) EPS_X_STEPS = 1;
+    if (EPS_Y_STEPS < 1) EPS_Y_STEPS = 1;
     Serial.println("ok"); return;
   }
 
@@ -500,6 +530,25 @@ void handleLine(String s){
     }
     Serial.println("ok"); return;
   }
+
+  if(s.startsWith("GF ")){
+    if(estop){ Serial.println("err ESTOP"); return; }
+    if(!checkAlarmsAndReport()) return;
+    float x=NAN, y=NAN, f=1200;
+    int i=3; while(i<s.length()){
+      int j=s.indexOf(' ', i); if(j<0) j=s.length();
+      String t=s.substring(i,j);
+      if      (t.startsWith("X")) x=t.substring(1).toFloat();
+      else if (t.startsWith("Y")) y=t.substring(1).toFloat();
+      else if (t.startsWith("F")) f=t.substring(1).toFloat();
+      i=j+1;
+    }
+    if(isnan(x) || isnan(y)){ Serial.println("err BAD_ARGS"); return; }
+    movePlan(x,y,f);
+    while(runStep(true)) { /* ездим, MIN-концевики охраняем, PED игнорим */ }
+    Serial.println("ok"); return;
+  }
+
 
   if(s.startsWith("G ")){
     if(estop){ Serial.println("err ESTOP"); return; }
