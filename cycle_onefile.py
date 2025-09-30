@@ -354,6 +354,7 @@ def home_to_zero(ser: serial.Serial, timeout: float = 30.0) -> bool:
 def send_cmd(ser: serial.Serial, line: str):
     """Отправить команду и дождаться ok/err; печатаем ответы."""
     payload = (line.strip() + "\n").encode()
+    ser.reset_input_buffer()
     ser.write(payload)
     while True:
         s = ser.readline().decode(errors="ignore").strip()
@@ -363,8 +364,55 @@ def send_cmd(ser: serial.Serial, line: str):
         if s.startswith("ok") or s.startswith("err"):
             break
 
+def send_cmd_collect(ser: serial.Serial, line: str, timeout: float = 5.0) -> list[str]:
+    payload = (line.strip() + "\n").encode()
+    ser.reset_input_buffer()
+    ser.write(payload)
+    lines: list[str] = []
+    t0 = time.time()
+    while True:
+        if time.time() - t0 > timeout:
+            raise TimeoutError(f"Timeout waiting OK for '{line}'")
+        s = ser.readline().decode(errors="ignore").strip()
+        if not s:
+            continue
+        print(f"[SER] {s}")
+        lines.append(s)
+        if s.startswith("ok") or s.startswith("err"):
+            return lines
+
 def move_xy(ser: serial.Serial, x: float, y: float, f: int = MOVE_F):
     send_cmd(ser, f"G X{x} Y{y} F{f}")
+
+def _parse_status_xy(lines: list[str]) -> tuple[float | None, float | None]:
+    x_val: float | None = None
+    y_val: float | None = None
+    for ln in lines:
+        if ln.startswith("STATUS "):
+            parts = ln.split()
+            for p in parts:
+                if p.startswith("X:"):
+                    x_val = float(p[2:])
+                elif p.startswith("Y:"):
+                    y_val = float(p[2:])
+            break
+    return x_val, y_val
+
+def get_position_mm(ser: serial.Serial) -> tuple[float | None, float | None]:
+    try:
+        lines = send_cmd_collect(ser, "M114", timeout=3.0)
+    except Exception as e:
+        return None, None
+    return _parse_status_xy(lines)
+
+def verify_position_reached(ser: serial.Serial, target_x: float, target_y: float, tol_mm: float = 0.30) -> tuple[bool, dict]:
+    x_mm, y_mm = get_position_mm(ser)
+    if x_mm is None or y_mm is None:
+        return False, {"reason": "no_status"}
+    dx = abs(x_mm - float(target_x))
+    dy = abs(y_mm - float(target_y))
+    ok = (dx <= tol_mm) and (dy <= tol_mm)
+    return ok, {"x": x_mm, "y": y_mm, "dx": dx, "dy": dy, "tol": tol_mm}
 
 # =====================[ ХЕЛПЕРЫ ЛОГИКИ ]=======================
 def wait_sensor(io: IOController, sensor_name: str, target_close: bool, timeout: float | None) -> bool:
@@ -613,7 +661,7 @@ class StartTrigger:
                         print("[trigger] Отримано команду START від UI")
                         self.event.set()
                         conn.sendall(b"OK\n")
-                    elif b"MOTOR_RESET" in up:                   # ← НОВОЕ
+                    elif b"MOTOR_RESET" in data.upper():
                         print("[trigger] Отримано команду MOTOR_RESET від UI")
                         self.reset_event.set()
                         conn.sendall(b"OK\n")
@@ -1192,6 +1240,19 @@ def main():
                     break
 
                 if t == "work":
+                    ok_pos, meta = verify_position_reached(ser, x, y, tol_mm=0.30)
+                    if not ok_pos:
+                        ev_warn("POS_MISMATCH", "Позиція не в межах допуску після руху", target_x=float(x), target_y=float(y), **meta)
+                        slow_f = max(2000, int(feed_val // 3))
+                        _move_xy(ser, x, y, slow_f, cmd="G")
+                        time.sleep(0.05)
+                        ok_pos2, meta2 = verify_position_reached(ser, x, y, tol_mm=0.30)
+                        if not ok_pos2:
+                            ev_err("POS_VERIFY_FAIL", "Не вдалося підтвердити позицію. Аварійний вихід перед закручуванням", target_x=float(x), target_y=float(y), **meta2)
+                            ui_status_update(status_text="Помилка позиціювання — відміна кроку", can_tighten=False, phase="pos_fail")
+                            send_cmd(ser, "WORK")
+                            abort = True
+                            break
                     # (необ.) импульс выбора таски
                     if "task" in step:
                         select_task(io, int(step["task"]))
