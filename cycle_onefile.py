@@ -1128,6 +1128,8 @@ def main():
     print("=== Старт скрипта ===")
     ui_status_update(status_text="Виходжу в нулі...", can_tighten=False, phase="homing")
     send_cmd(ser, "G28")   # хоуминг
+    time.sleep(0.7)
+    send_cmd(ser, "G28")   # хоуминг
     ui_status_update(status_text="Виходжу до оператора...", can_tighten=False, phase="to_operator")
     send_cmd(ser, "WORK")  # привести механику в безопасный «рабочий» пресет
     ev_info("WORK", "Систему переведено у робочий пресет")
