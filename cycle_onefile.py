@@ -15,7 +15,6 @@ from typing import Optional
 import RPi.GPIO as GPIO
 # ===[ ДОБАВЛЕНО: serial ]===
 import serial
-import logging, sys
 
 import socket
 
@@ -32,12 +31,6 @@ TASK_PULSE_MS = 700  # п.7: импульс выбора задачи
 UI_STATUS_PATH = Path("/tmp/ui_status.json")
 EVENT_LOG_PATH = Path("/tmp/screw_events.jsonl")
 EVENT_BUFFER_SIZE = 200  # сколько последних событий держать в памяти
-
-
-log = logging.getLogger("ser")
-log.setLevel(logging.INFO)
-log.addHandler(logging.StreamHandler(sys.stdout))           # в stdout → поймает tee
-log.addHandler(logging.FileHandler("/var/log/ser.log"))     # в файл
 
 # Файл конфигурации устройств (датчиков/реле)
 # Реле (BCM): подгони под свою распиновку при необходимости
