@@ -65,6 +65,10 @@ bool Y_ENDSTOP_ACTIVE_LOW = false;
 #define PED_WAIT_TIMEOUT   8000
 #define PED_SETTLE_MS      50
 
+/* ===== Geometry tolerances ===== */
+float EPS_X_MM = 0.20f;
+float EPS_Y_MM = 0.20f;
+
 /* ===== Globals ===== */
 AccelStepper stepX(AccelStepper::DRIVER, X_STEP, X_DIR);
 AccelStepper stepY(AccelStepper::DRIVER, Y_STEP, Y_DIR);
@@ -198,6 +202,12 @@ void movePlan(float x_mm, float y_mm, float f_mm_min){
   stepY.moveTo((long)(y_mm * STEPS_PER_MM_Y));
 }
 
+/* ===== Position helpers ===== */
+inline float posXmm(){ return ((float)stepX.currentPosition()) / STEPS_PER_MM_X; }
+inline float posYmm(){ return ((float)stepY.currentPosition()) / STEPS_PER_MM_Y; }
+inline bool atTargetXmm(float target_mm){ return fabsf(posXmm() - target_mm) <= EPS_X_MM; }
+inline bool atTargetYmm(float target_mm){ return fabsf(posYmm() - target_mm) <= EPS_Y_MM; }
+
 bool runStep(bool checkEndstops=true){
   if(checkEndstops){
     if(stepX.speed()<0 && endActive(X_MIN_PIN, X_ENDSTOP_ACTIVE_LOW)) stepX.stop();
@@ -236,21 +246,25 @@ bool guardedMoveTo(float x_mm, float y_mm, float f_mm_min){
 
     // X: СѓРґРµСЂР¶Р°РЅРёРµ + СЃР±СЂРѕСЃ, РµСЃР»Рё PED РѕС‚РїР°Р» РґРѕ РІС‹РґРµСЂР¶РєРё
     if(trackX && !xPosPrinted){
-      if(pedActiveX()){
+      bool ped_ok = pedActiveX();
+      bool geo_ok = atTargetXmm(x_mm);
+      if(ped_ok && geo_ok){
         if(!tHoldX) tHoldX = millis();
         if(millis()-tHoldX >= PED_SETTLE_MS){ Serial.println(F("PED_X_IN_POS")); xPosPrinted=true; }
       } else {
-        tHoldX = 0; // СЃР±СЂРѕСЃ СѓРґРµСЂР¶Р°РЅРёСЏ
+        tHoldX = 0;
       }
     }
 
     // Y: СѓРґРµСЂР¶Р°РЅРёРµ + СЃР±СЂРѕСЃ, РµСЃР»Рё PED РѕС‚РїР°Р» РґРѕ РІС‹РґРµСЂР¶РєРё
     if(trackY && !yPosPrinted){
-      if(pedActiveY()){
+      bool ped_ok = pedActiveY();
+      bool geo_ok = atTargetYmm(y_mm);
+      if(ped_ok && geo_ok){
         if(!tHoldY) tHoldY = millis();
         if(millis()-tHoldY >= PED_SETTLE_MS){ Serial.println(F("PED_Y_IN_POS")); yPosPrinted=true; }
       } else {
-        tHoldY = 0; // СЃР±СЂРѕСЃ СѓРґРµСЂР¶Р°РЅРёСЏ
+        tHoldY = 0;
       }
     }
 
@@ -504,6 +518,25 @@ void handleLine(String s){
     }
     Serial.println("ok"); return;
   }
+
+  if(s.startsWith("GF ")){
+    if(estop){ Serial.println("err ESTOP"); return; }
+    if(!checkAlarmsAndReport()) return;
+    float x=NAN, y=NAN, f=1200;
+    int i=3; while(i<s.length()){
+      int j=s.indexOf(' ', i); if(j<0) j=s.length();
+      String t=s.substring(i,j);
+      if      (t.startsWith("X")) x=t.substring(1).toFloat();
+      else if (t.startsWith("Y")) y=t.substring(1).toFloat();
+      else if (t.startsWith("F")) f=t.substring(1).toFloat();
+      i=j+1;
+    }
+    if(isnan(x) || isnan(y)){ Serial.println("err BAD_ARGS"); return; }
+    movePlan(x,y,f);
+    while(runStep(true)) { /* ездим, MIN-концевики охраняем, PED игнорим */ }
+    Serial.println("ok"); return;
+  }
+
 
   if(s.startsWith("G ")){
     if(estop){ Serial.println("err ESTOP"); return; }

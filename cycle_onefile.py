@@ -1135,9 +1135,9 @@ def main():
 
 
     # локальный хелпер перемещения (если у тебя есть глобальный move_xy — можешь использовать его)
-    def _move_xy(ser_, x, y, f=None):
+    def _move_xy(ser_, x, y, f=None, cmd="G"):
         feed = f or MOVE_F
-        send_cmd(ser_, f"G X{x} Y{y} F{feed}")
+        send_cmd(ser_, f"{cmd} X{x} Y{y} F{feed}")
 
     try:
         while True:
@@ -1168,7 +1168,9 @@ def main():
 
                 # перемещение в точку шага
                 ev_info("MOVE", f"Перехід X={x} Y={y}", x=float(x), y=float(y), f=feed_val)
-                _move_xy(ser, x, y, f)
+                # выбор команды: для free → GF, для work → G
+                cmd = "GF" if t == "free" else "G"
+                _move_xy(ser, x, y, f, cmd=cmd)
 
                 # включаем контроль шторы после первой достигнутой точки
                 if not area_armed and idx == 0:
