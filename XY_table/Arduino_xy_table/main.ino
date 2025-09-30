@@ -2,9 +2,9 @@
 #include <math.h>
 
 /* ===== RAMPS 1.4 pins (Mega2560) ===== */
-#define X_STEP 54
-#define X_DIR  55
-#define X_EN   38
+#define X_STEP 46
+#define X_DIR  48
+#define X_EN   62
 #define Y_STEP 60
 #define Y_DIR  61
 #define Y_EN   56
@@ -451,7 +451,7 @@ void handleLine(String s){
     while(runStep(true)){}        // ← просто доехать
     Serial.println("ok"); return;
   }
-  
+
   if(s.startsWith("DY ")){
     float d=0, f=600; int i=3;
     while(i<s.length()){ int j=s.indexOf(' ',i); if(j<0) j=s.length(); String t=s.substring(i,j);
