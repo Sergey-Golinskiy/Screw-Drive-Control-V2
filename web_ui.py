@@ -176,34 +176,30 @@ def ext_start() -> bool:
 
 @with_io_lock
 def ext_stop() -> bool:
-    """Останавливаем внешний процесс и восстанавливаем GPIO в web_ui."""
     global io, ext_proc
     if not ext_is_running():
-        # уже остановлен — просто убедиться, что GPIO восстановлены
         if io is None:
             io = IOController()
         return True
 
     try:
-        # Послать SIGINT (как Ctrl+C), дать шанс корректно завершиться
         ext_proc.send_signal(signal.SIGINT)
         try:
             ext_proc.wait(timeout=3.0)
         except subprocess.TimeoutExpired:
-            # Жестко завершим
             ext_proc.kill()
-            _stop_log_reader()
-            _append_log_line("[web_ui] external stopped")
             ext_proc.wait(timeout=2.0)
     except Exception:
         pass
     finally:
+        _stop_log_reader()                      # ← добавь ВСЕГДА
+        _append_log_line("[web_ui] external stopped")
         ext_proc = None
 
-    # Восстановить GPIO в веб-панели
     if io is None:
         io = IOController()
     return True
+
 
 # ---------------------- Status builder ----------------------
 def build_status():
@@ -583,6 +579,7 @@ window.addEventListener('load', async ()=>{
   render(await getStatus());   // ← рисуем UI
   setInterval(refresh, 1000);
 });
+// ---------------------- Log viewer ----------------------
 let es = null;
 let logPaused = false;
 
