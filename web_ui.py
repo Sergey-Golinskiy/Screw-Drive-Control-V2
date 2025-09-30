@@ -16,7 +16,8 @@ except Exception:
     socket = None
 from functools import wraps
 from flask import Flask, request, jsonify, Response
-
+from collections import deque
+import queue
 from cycle_onefile import IOController, RELAY_PINS, SENSOR_PINS
 
 BUSY_FLAG = "/tmp/screw_cycle_busy"
@@ -38,6 +39,50 @@ cycle_running = False # не используется, оставлено для
 ext_proc: subprocess.Popen | None = None
 
 TIMEOUT_SEC = 5.0  # базовый таймаут для ожидания датчиков (если понадобится)
+
+LOG_MAX_LINES = 5000
+_log_buffer = deque(maxlen=LOG_MAX_LINES)   # кольцевой буфер последних строк
+_log_queue: "queue.Queue[str]" = queue.Queue()  # свежие строки для SSE
+_log_reader_thread: threading.Thread | None = None
+_log_reader_stop = threading.Event()
+
+def _append_log_line(line: str):
+    line = line.rstrip("\r\n")
+    _log_buffer.append(line)
+    # неблокирующая попытка положить в очередь для стриминга
+    try:
+        _log_queue.put_nowait(line)
+    except queue.Full:
+        pass  # игнор
+
+def _start_log_reader_for(proc: subprocess.Popen):
+    global _log_reader_thread
+    _log_reader_stop.clear()
+
+    def _reader():
+        try:
+            # Пайп stdout открыт в ext_start(..., stdout=PIPE, text=True, bufsize=1)
+            for raw in iter(proc.stdout.readline, ''):
+                if _log_reader_stop.is_set():
+                    break
+                if not raw:
+                    break
+                _append_log_line(raw)
+        except Exception as e:
+            _append_log_line(f"[web_ui] log-reader exception: {e!r}")
+        finally:
+            _append_log_line("[web_ui] external stdout stream closed")
+
+    _log_reader_thread = threading.Thread(target=_reader, name="ext-stdout-reader", daemon=True)
+    _log_reader_thread.start()
+
+def _stop_log_reader():
+    _log_reader_stop.set()
+    try:
+        if _log_reader_thread and _log_reader_thread.is_alive():
+            _log_reader_thread.join(timeout=1.0)
+    except Exception:
+        pass
 
 def load_devices_list():
     try:
@@ -125,6 +170,8 @@ def ext_start() -> bool:
         [sys.executable, script_path, "--device", sel],  # <-- здесь
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
     )
+    _append_log_line("[web_ui] external started")
+    _start_log_reader_for(ext_proc)
     return True
 
 @with_io_lock
@@ -145,6 +192,8 @@ def ext_stop() -> bool:
         except subprocess.TimeoutExpired:
             # Жестко завершим
             ext_proc.kill()
+            _stop_log_reader()
+            _append_log_line("[web_ui] external stopped")
             ext_proc.wait(timeout=2.0)
     except Exception:
         pass
@@ -213,6 +262,34 @@ def api_relay():
             return jsonify({"error": "action must be 'on' | 'off' | 'pulse'"}), 400
 
     return jsonify(build_status())
+
+@app.get("/api/ext/logtail")
+def api_ext_logtail():
+    try:
+        n = int(request.args.get("n", "300"))
+    except Exception:
+        n = 300
+    n = max(1, min(n, LOG_MAX_LINES))
+    data = list(_log_buffer)[-n:]
+    return jsonify({"lines": data, "running": ext_is_running()})
+
+@app.get("/api/ext/logs")
+def api_ext_logs():
+    def event_stream():
+        # При подключении сначала выдадим небольшую «метку» состояния
+        yield f"data: [web_ui] log stream connected; running={ext_is_running()}\n\n"
+        # Затем — бесконечный поток строк из очереди
+        while True:
+            try:
+                line = _log_queue.get(timeout=1.0)
+                # SSE «data: ... \n\n»
+                yield "data: " + line.replace("\r", "").replace("\n", "") + "\n\n"
+            except queue.Empty:
+                # Пусто — можно послать heartbeat, чтобы не рвалось на прокси
+                yield "data: \n\n"
+                continue
+    return Response(event_stream(), mimetype="text/event-stream")
+
 
 @app.route("/api/ext/start", methods=["POST"])
 def api_ext_start():
@@ -328,6 +405,18 @@ INDEX_HTML = """<!doctype html>
       <div class="muted">Если внешний скрипт запущен — кнопки будут отключены.</div>
     </div>
   </div>
+
+      <div class="card" style="flex:1; min-width:420px">
+      <h3>Serial log (external)</h3>
+      <div class="controls" style="margin-bottom:8px">
+        <button id="btnLogPause" class="btn">Pause</button>
+        <button id="btnLogResume" class="btn" disabled>Resume</button>
+        <button id="btnLogClear" class="btn">Clear</button>
+      </div>
+      <pre id="serLog" style="height:320px; overflow:auto; background:#0b0d0e; color:#d7e0e7; padding:10px; border-radius:8px; font-size:12px; line-height:1.35; border:1px solid #222"></pre>
+      <div class="muted">Показывает stdout <code>cycle_onefile.py</code> — строки вида <code>[SER] &gt;&gt;</code> и <code>[SER] &lt;&lt;</code>.</div>
+    </div>
+
 
 <script>
 async function getStatus(){
@@ -492,6 +581,64 @@ document.getElementById('btnCmdStart').addEventListener('click', async ()=>{
 window.addEventListener('load', async ()=>{
   await loadConfig();          // ← заполняем выпадающий список
   render(await getStatus());   // ← рисуем UI
+  setInterval(refresh, 1000);
+});
+let es = null;
+let logPaused = false;
+
+function logAppend(text){
+  const pre = document.getElementById('serLog');
+  if(!pre) return;
+  if(logPaused) return;
+
+  if(text && text.trim().length){
+    pre.textContent += (pre.textContent ? "\n" : "") + text;
+    // автоскролл вниз
+    pre.scrollTop = pre.scrollHeight;
+  }
+}
+
+async function logLoadTail(){
+  try{
+    const res = await fetch('/api/ext/logtail?n=300');
+    if(!res.ok) return;
+    const data = await res.json();
+    document.getElementById('serLog').textContent = (data.lines || []).join("\n");
+    const pre = document.getElementById('serLog');
+    pre.scrollTop = pre.scrollHeight;
+  }catch(e){}
+}
+
+function logConnectSSE(){
+  if(es){ try{ es.close(); }catch(e){} es = null; }
+  es = new EventSource('/api/ext/logs');
+  es.onmessage = (ev)=> { logAppend(ev.data); };
+  es.onerror = ()=> {
+    // авто-reconnect через секунду
+    try{ es.close(); }catch(e){}
+    setTimeout(logConnectSSE, 1000);
+  };
+}
+
+document.getElementById('btnLogPause').addEventListener('click', ()=>{
+  logPaused = true;
+  document.getElementById('btnLogPause').disabled = true;
+  document.getElementById('btnLogResume').disabled = false;
+});
+document.getElementById('btnLogResume').addEventListener('click', ()=>{
+  logPaused = false;
+  document.getElementById('btnLogPause').disabled = false;
+  document.getElementById('btnLogResume').disabled = true;
+});
+document.getElementById('btnLogClear').addEventListener('click', ()=>{
+  document.getElementById('serLog').textContent = '';
+});
+
+window.addEventListener('load', async ()=>{
+  await loadConfig();
+  render(await getStatus());
+  await logLoadTail();   // подтянуть последние строки при загрузке
+  logConnectSSE();       // и подписаться на поток
   setInterval(refresh, 1000);
 });
 </script>
