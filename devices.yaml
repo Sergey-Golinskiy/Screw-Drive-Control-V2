@@ -12,8 +12,8 @@ devices:
       - { type: "free",  x: 157, y: 110, f: 60000 }
       - { type: "free",  x: 157, y: 50.5, f: 60000 }
       - { type: "work",  x: 139.5, y: 50.5, f: 60000 }
-      - { type: "free",  x: 139.5, y: 45, f: 60000 }
-      - { type: "free",  x: 29.5, y: 45, f: 60000 }
+      - { type: "free",  x: 139.5, y: 40, f: 60000 }
+      - { type: "free",  x: 29.5, y: 40, f: 60000 }
       - { type: "work",  x: 29.5, y: 52, f: 60000 }
       - { type: "free",  x: 5, y: 52, f: 60000 }
 
