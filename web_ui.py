@@ -136,7 +136,7 @@ def send_start_trigger(host="127.0.0.1", port=8765, payload=b"START\n", timeout=
 
 # ---------------------- External script control ----------------------
 def ext_is_running() -> bool:
-    return ext_proc is not None and ext_proc.poll() is None
+    return ext_proc is not None and (ext_proc.poll() is None)
 
 @with_io_lock
 def ext_start() -> bool:
@@ -180,7 +180,7 @@ def ext_start() -> bool:
         daemon=True,
     )
     drain_thread.start()
-
+    
     return True
 
 @with_io_lock
