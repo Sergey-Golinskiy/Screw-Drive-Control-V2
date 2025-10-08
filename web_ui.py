@@ -206,18 +206,6 @@ def ext_stop() -> bool:
         pass
     finally:
         ext_proc = None
-    
-     # Сигнал потоку-дренажу (он выйдет после закрытия stdout дочерним процессом)
-    try:
-        if drain_stop_evt:
-            drain_stop_evt.set()
-        if drain_thread and drain_thread.is_alive():
-            drain_thread.join(timeout=1.0)
-    except Exception:
-        pass
-    finally:
-        drain_thread = None
-        drain_stop_evt = None
 
     # Восстановить GPIO в веб-панели
     if io is None:
