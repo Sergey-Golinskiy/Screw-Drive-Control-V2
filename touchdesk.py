@@ -1006,7 +1006,7 @@ QTextEdit#eventsLog {
 
 
 
-# ================== Main Window ==================
+# ================== Main Window =================
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()

@@ -24,7 +24,7 @@ BUSY_FLAG = "/tmp/screw_cycle_busy"
 CFG_PATH = Path(__file__).with_name("devices.yaml")
 SELECTED_PATH = Path("/tmp/selected_device.json")
 UI_STATUS_PATH = Path("/tmp/ui_status.json")
-# ---------------------- Инициализация ----------------------
+# ---------------------- Инициализация ---------------------
 app = Flask(__name__)
 
 io_lock = threading.Lock()
