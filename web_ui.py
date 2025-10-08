@@ -155,32 +155,10 @@ def ext_start() -> bool:
         io = None
 
     script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cycle_onefile.py")
-    # Стартуем процесс с PIPE + безбуферный вывод
-    try:
-        ext_proc = subprocess.Popen(
-            [sys.executable, "-u", script_path, "--device", sel],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,               # line-buffered в Python-тексте
-            close_fds=True,
-            start_new_session=True,
-            env={**os.environ, "PYTHONUNBUFFERED": "1"},
-        )
-    except Exception as e:
-        print(f"[EXT] spawn failed: {e}")
-        ext_proc = None
-        return False
-
-    # Поднимаем поток-дренаж, чтобы не забивался PIPE
-    drain_stop_evt = threading.Event()
-    drain_thread = threading.Thread(
-        target=_drain_stdout,
-        args=(ext_proc, drain_stop_evt, drain_lines),  # можно передать None вместо drain_lines для «тихого» слива
-        daemon=True,
+    ext_proc = subprocess.Popen(
+        [sys.executable, script_path, "--device", sel],  # <-- здесь
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
     )
-    drain_thread.start()
-    
     return True
 
 @with_io_lock
