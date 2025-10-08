@@ -18,7 +18,7 @@ import serial
 
 import socket
 
-# =====================[ ТРИГГЕР ]====================
+# =====================[ ТРИГГЕР ]=====================
 TRIGGER_HOST = "127.0.0.1"
 TRIGGER_PORT = 8765
 
@@ -73,7 +73,7 @@ POINTS = [
 ]
 
 # Серийный порт
-SERIAL_PORT = "/dev/ttyACM0"
+SERIAL_PORT = "/dev/ttyACM1"
 SERIAL_BAUD = 115200
 SERIAL_TIMEOUT = 0.5
 SERIAL_WTIMEOUT = 0.5
@@ -354,7 +354,6 @@ def home_to_zero(ser: serial.Serial, timeout: float = 30.0) -> bool:
 def send_cmd(ser: serial.Serial, line: str):
     """Отправить команду и дождаться ok/err; печатаем ответы."""
     payload = (line.strip() + "\n").encode()
-    ser.reset_input_buffer()
     ser.write(payload)
     while True:
         s = ser.readline().decode(errors="ignore").strip()
@@ -363,56 +362,9 @@ def send_cmd(ser: serial.Serial, line: str):
         print(f"[SER] {s}")
         if s.startswith("ok") or s.startswith("err"):
             break
-
-def send_cmd_collect(ser: serial.Serial, line: str, timeout: float = 5.0) -> list[str]:
-    payload = (line.strip() + "\n").encode()
-    ser.reset_input_buffer()
-    ser.write(payload)
-    lines: list[str] = []
-    t0 = time.time()
-    while True:
-        if time.time() - t0 > timeout:
-            raise TimeoutError(f"Timeout waiting OK for '{line}'")
-        s = ser.readline().decode(errors="ignore").strip()
-        if not s:
-            continue
-        print(f"[SER] {s}")
-        lines.append(s)
-        if s.startswith("ok") or s.startswith("err"):
-            return lines
 
 def move_xy(ser: serial.Serial, x: float, y: float, f: int = MOVE_F):
     send_cmd(ser, f"G X{x} Y{y} F{f}")
-
-def _parse_status_xy(lines: list[str]) -> tuple[float | None, float | None]:
-    x_val: float | None = None
-    y_val: float | None = None
-    for ln in lines:
-        if ln.startswith("STATUS "):
-            parts = ln.split()
-            for p in parts:
-                if p.startswith("X:"):
-                    x_val = float(p[2:])
-                elif p.startswith("Y:"):
-                    y_val = float(p[2:])
-            break
-    return x_val, y_val
-
-def get_position_mm(ser: serial.Serial) -> tuple[float | None, float | None]:
-    try:
-        lines = send_cmd_collect(ser, "M114", timeout=3.0)
-    except Exception as e:
-        return None, None
-    return _parse_status_xy(lines)
-
-def verify_position_reached(ser: serial.Serial, target_x: float, target_y: float, tol_mm: float = 0.30) -> tuple[bool, dict]:
-    x_mm, y_mm = get_position_mm(ser)
-    if x_mm is None or y_mm is None:
-        return False, {"reason": "no_status"}
-    dx = abs(x_mm - float(target_x))
-    dy = abs(y_mm - float(target_y))
-    ok = (dx <= tol_mm) and (dy <= tol_mm)
-    return ok, {"x": x_mm, "y": y_mm, "dx": dx, "dy": dy, "tol": tol_mm}
 
 # =====================[ ХЕЛПЕРЫ ЛОГИКИ ]=======================
 def wait_sensor(io: IOController, sensor_name: str, target_close: bool, timeout: float | None) -> bool:
@@ -457,8 +409,8 @@ def check_pneumatics_start(io: "IOController") -> bool:
     down = io.sensor_state("GER_C2_DOWN")  # True = CLOSE
 
     if up is True and down is False:
-        ui_status_update(status_text="Стартові стани валідні (UP=CLOSE, DOWN=OPEN)", can_tighten=False, phase="ready_to_start_ok_pneumatics")
         ev_info("PNEUM_START_OK", "Стартові стани валідні (UP=CLOSE, DOWN=OPEN)")
+        ui_status_update(status_text="Стартові стани валідні (UP=CLOSE, DOWN=OPEN)", can_tighten=False, phase="PNEUM_START_OK")
         return True
 
     msg = ("Перевірте пневматику: на старті очікуємо GER_C2_UP=CLOSE, "
@@ -661,7 +613,7 @@ class StartTrigger:
                         print("[trigger] Отримано команду START від UI")
                         self.event.set()
                         conn.sendall(b"OK\n")
-                    elif b"MOTOR_RESET" in data.upper():
+                    elif b"MOTOR_RESET" in up:                   # ← НОВОЕ
                         print("[trigger] Отримано команду MOTOR_RESET від UI")
                         self.reset_event.set()
                         conn.sendall(b"OK\n")
@@ -914,109 +866,29 @@ def main():
     trg = StartTrigger(TRIGGER_HOST, TRIGGER_PORT)
     trg.start()
 
+    ui_status_update(status_text="Перевыряю наявність зжатого повітря", can_tighten=False, phase="check_pneumatics")
 
-    ui_status_update(status_text="Перевіряю наявність сжатого повітря", can_tighten=False, phase="check_pneumatics")
-    # 1.1 Перевірка стартової пневматики (UP=CLOSE, DOWN=OPEN) — inline
-    up   = io.sensor_state("GER_C2_UP")      # True = CLOSE
-    down = io.sensor_state("GER_C2_DOWN")    # True = CLOSE
-    if up is True and down is False:
-        ev_info("PNEUM_START_OK", "Стартові стани валідні (UP=CLOSE, DOWN=OPEN)")
-    else:
-        # 1) статус для UI
-        err_msg = "Аварія: скоріш за все не підключене повітря"
-        ui_status_update(status_text=err_msg, can_tighten=False, phase="error_no_air")
-
-        # 2) лог + причина завершення
-        details = {
-            "expect_up": True, "expect_down": False,
-            "actual_up": up, "actual_down": down
-        }
-        ev_err("PNEUMATICS_NOT_READY",
-            "Перевірте пневматику: на старті очікуємо GER_C2_UP=CLOSE, GER_C2_DOWN=OPEN.",
-            popup=True, **details)
-        write_exit_reason("pneumatics_not_ready", err_msg, details)
-
-    # 3) безопасное состояние: момент OFF, цилиндр вверх
-        try:
-            io.set_relay("R06_DI1_POT", False)
-            io.set_relay("R04_C2", False)
-        except Exception:
-            pass
-
-        # 4) аккуратное завершение
-        try:
-            trg.stop()
-        except Exception:
-            pass
-        try:
-            io.cleanup()
-        except Exception:
-            pass
-
+    # 1.1 Проверка стартовой пневматики (UP=CLOSE, DOWN=OPEN)
+    if not check_pneumatics_start(io):
+    # причина уже записана write_exit_reason(...), сразу выходим
         raise SystemExit(2)
-
 
     # 1.2 Прогон цилиндра вниз→вверх
     if not cyl_down_up(io):
     # причина уже записана, выходим
         raise SystemExit(2)
     
-    ev_info("PNEUM_DU_OK", "Циліндр: вниз/вгору виконано")
     ui_status_update(status_text="Обираю таску для закручування 0", can_tighten=False, phase="select_task0")
     # 1.3 Импульс таски-0 (500 мс)
     select_task0(io, ms=500)
-    ev_info("TASK0_SELECT", "Застосовано таск 0", ms=500)
 
     ui_status_update(status_text="Відкриваю serial-порт", can_tighten=False, phase="open_serial")
 
 # 2) открыть serial и проверить готовность контроллера
-    #print(f"[{ts()}] Відкриваю serial-порт {SERIAL_PORT} @ {SERIAL_BAUD}")
-    #ser = open_serial()
-    #ui_status_update(status_text="Serial-порт выдкрито", can_tighten=False, phase="serial_opened")
-    #print(f"[{ts()}] Serial відкрито")
-
-
-
     print(f"[{ts()}] Відкриваю serial-порт {SERIAL_PORT} @ {SERIAL_BAUD}")
-    try:
-        ser = open_serial()
-        if ser is None:
-            raise RuntimeError("open_serial() повернула None")
-
-        # успех — статус и лог
-        ui_status_update(status_text="Serial-порт відкрито", can_tighten=False, phase="serial_opened")
-        ev_info("SER_OPENED", f"Serial відкрито: {SERIAL_PORT} @ {SERIAL_BAUD}")
-        print(f"[{ts()}] Serial відкрито")
-
-    except Exception as e:
-        # неуспех — статус для UI + лог + причина завершення
-        err_msg = f"Аварія: не вдалося відкрити serial ({SERIAL_PORT} @ {SERIAL_BAUD})"
-        ev_err("SERIAL_OPEN_FAIL", f"{err_msg}. Помилка: {e}", popup=True)
-
-        ui_status_update(
-            status_text=err_msg,
-            can_tighten=False,
-            phase="error_serial_open"
-        )
-
-        write_exit_reason(
-            "serial_open_fail",
-            err_msg,
-            {"port": SERIAL_PORT, "baud": SERIAL_BAUD, "error": str(e)}
-        )
-
-        # аккуратне згортання (якщо вже є ініціалізовані об’єкти)
-        try:
-            trg.stop()
-        except Exception:
-            pass
-        try:
-            io.cleanup()
-        except Exception:
-            pass
-
-        raise SystemExit(2)
-
+    ser = open_serial()
+    ui_status_update(status_text="Serial-порт выдкрито", can_tighten=False, phase="serial_opened")
+    print(f"[{ts()}] Serial відкрито")
 
     #time.sleep(1.0)
 
@@ -1045,120 +917,9 @@ def main():
    # после: ser = open_serial(); print("Serial відкрито")
     #time.sleep(1.0)
     ui_status_update(status_text="Перевіряю мотори", can_tighten=False, phase="check_motors")
-
-    # === inline: wait_motors_ok_and_ready(ser, timeout=15.0) ===
-    try:
-        ser.reset_input_buffer()
-    except Exception:
-        pass
-
-    t_end = time.time() + 15.0
-    got_x_ok = False
-    got_y_ok = False
-    got_ready = False
-    x_alarm_seen = False
-    y_alarm_seen = False
-
-    def _motors_fail_exit(msg: str):
-        # статусы/логи как при обычном фейле
-        ev_err("READY_TIMEOUT", msg, popup=True)
-        ui_status_update(status_text="Аварія: мотори не готові", can_tighten=False, phase="error_motors")
-        try: trg.stop()
-        except Exception: pass
-        try: io.cleanup()
-        except Exception: pass
-        try: ser.close()
-        except Exception: pass
+    if not wait_motors_ok_and_ready(ser, timeout=15.0):
         raise SystemExit(2)
-
-    while time.time() < t_end:
-        # быстрый успех
-        if got_x_ok and got_y_ok and got_ready:
-            print("=== OK: X_OK + Y_OK + ok READY отримані ===")
-            break
-
-        raw = ser.readline()
-        if not raw:
-            continue
-        s = raw.decode(errors="ignore").strip()
-        if not s:
-            continue
-        print(f"[SER] {s}")
-        ls = s.lower().strip()
-
-        # --- ALARM → RESET ---
-        if "mot_x_alarm" in ls:
-            x_alarm_seen = True
-            ev_info("MOT_X_ALARM", "ALARM на осі X — виконуємо скидання")
-            ui_status_update(status_text="ALARM на осі X — виконуємо скидання", can_tighten=False, phase="mot_x_alarm")
-
-            try:
-                ser.write(b"MOT_X_RESET\n"); ser.flush()
-            except Exception as e:
-                ev_err("MOT_X_RESET_FAIL", f"Помилка відправки MOT_X_RESET: {e}", popup=True)
-                ui_status_update(status_text="Помилка відправки MOT_X_RESET", can_tighten=False, phase="error_mot_x_reset")
-                _motors_fail_exit("Помилка під час скидання ALARM на осі X")
-            continue
-
-        if "mot_y_alarm" in ls:
-            y_alarm_seen = True
-            ev_info("MOT_Y_ALARM", "ALARM на осі Y — виконуємо скидання")
-            ui_status_update(status_text="ALARM на осі Y — виконуємо скидання", can_tighten=False, phase="mot_y_alarm")
-            try:
-                ser.write(b"MOT_Y_RESET\n"); ser.flush()
-            except Exception as e:
-                ev_err("MOT_Y_RESET_FAIL", f"Помилка відправки MOT_Y_RESET: {e}", popup=True)
-                ui_status_update(status_text="Помилка відправки MOT_Y_RESET", can_tighten=False, phase="error_mot_y_reset")
-                _motors_fail_exit("Помилка під час скидання ALARM на осі Y")
-            continue
-
-        # --- OK маркеры ---
-        if "mot_x_ok" in ls:
-            if not got_x_ok:
-                got_x_ok = True
-                ev_info("MOT_X_OK", "Мотор X готовий")
-                ui_status_update(status_text="Мотор X готовий", can_tighten=False, phase="mot_x_ok")
-            if got_x_ok and got_y_ok and got_ready:
-                print("=== OK: X_OK + Y_OK + ok READY отримані ===")
-                break
-            continue
-
-        if "mot_y_ok" in ls:
-            if not got_y_ok:
-                got_y_ok = True
-                ev_info("MOT_Y_OK", "Мотор Y готовий")
-                ui_status_update(status_text="Мотор Y готовий", can_tighten=False, phase="mot_y_ok")
-            if got_x_ok and got_y_ok and got_ready:
-                print("=== OK: X_OK + Y_OK + ok READY отримані ===")
-                break
-            continue
-
-        if ls == "ok ready":
-            if not got_ready:
-                got_ready = True
-                ev_info("READY_OK", "Контролер готовий (ok READY)")
-                ui_status_update(status_text="Контроллер готовий (ok READY)", can_tighten=False, phase="ready_ok")
-
-            if got_x_ok and got_y_ok and got_ready:
-                print("=== OK: X_OK + Y_OK + ok READY отримані ===")
-                break
-            continue
-
-        if ls.startswith("err"):
-            ev_err("SER_ERR", f"Контролер відповів помилкою: {s}", popup=True)
-            _motors_fail_exit("Помилка від контролера під час перевірки моторів")
-            ui_status_update(status_text="Помилка від контролера під час перевірки моторів", can_tighten=False, phase="error_controller")
-
-    # если цикл закончился без break → таймаут
-    if not (got_x_ok and got_y_ok and got_ready):
-        _motors_fail_exit(
-            f"Не отримали всі маркери за 15.0s "
-            f"(X_OK={got_x_ok}, Y_OK={got_y_ok}, READY={got_ready}; "
-            f"X_ALARM_SEEN={x_alarm_seen}, Y_ALARM_SEEN={y_alarm_seen})"
-        )
-        ui_status_update(status_text="Не отримали всі маркери за 15.0sв", can_tighten=False, phase="error_motors_timeout")
-# === /inline ===
-
+    print("=== OK: X_OK + Y_OK + ok READY отримані ===")
 
 
     #time.sleep(5.0)
@@ -1183,9 +944,9 @@ def main():
 
 
     # локальный хелпер перемещения (если у тебя есть глобальный move_xy — можешь использовать его)
-    def _move_xy(ser_, x, y, f=None, cmd="G"):
+    def _move_xy(ser_, x, y, f=None):
         feed = f or MOVE_F
-        send_cmd(ser_, f"{cmd} X{x} Y{y} F{feed}")
+        send_cmd(ser_, f"G X{x} Y{y} F{feed}")
 
     try:
         while True:
@@ -1216,9 +977,7 @@ def main():
 
                 # перемещение в точку шага
                 ev_info("MOVE", f"Перехід X={x} Y={y}", x=float(x), y=float(y), f=feed_val)
-                # выбор команды: для free → GF, для work → G
-                cmd = "GF" if t == "free" else "G"
-                _move_xy(ser, x, y, f, cmd=cmd)
+                _move_xy(ser, x, y, f)
 
                 # включаем контроль шторы после первой достигнутой точки
                 if not area_armed and idx == 0:
@@ -1238,19 +997,6 @@ def main():
                     break
 
                 if t == "work":
-                    ok_pos, meta = verify_position_reached(ser, x, y, tol_mm=0.30)
-                    if not ok_pos:
-                        ev_warn("POS_MISMATCH", "Позиція не в межах допуску після руху", target_x=float(x), target_y=float(y), **meta)
-                        slow_f = max(2000, int(feed_val // 3))
-                        _move_xy(ser, x, y, slow_f, cmd="G")
-                        time.sleep(0.05)
-                        ok_pos2, meta2 = verify_position_reached(ser, x, y, tol_mm=0.30)
-                        if not ok_pos2:
-                            ev_err("POS_VERIFY_FAIL", "Не вдалося підтвердити позицію. Аварійний вихід перед закручуванням", target_x=float(x), target_y=float(y), **meta2)
-                            ui_status_update(status_text="Помилка позиціювання — відміна кроку", can_tighten=False, phase="pos_fail")
-                            send_cmd(ser, "WORK")
-                            abort = True
-                            break
                     # (необ.) импульс выбора таски
                     if "task" in step:
                         select_task(io, int(step["task"]))
