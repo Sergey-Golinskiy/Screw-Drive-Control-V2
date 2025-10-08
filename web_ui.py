@@ -24,7 +24,14 @@ BUSY_FLAG = "/tmp/screw_cycle_busy"
 CFG_PATH = Path(__file__).with_name("devices.yaml")
 SELECTED_PATH = Path("/tmp/selected_device.json")
 UI_STATUS_PATH = Path("/tmp/ui_status.json")
-# ---------------------- Инициализация ----------------------
+
+# === External cycle process & draining ===
+ext_proc = None            # subprocess.Popen процесса внешнего цикла
+drain_thread = None        # поток-дренаж stdout
+drain_stop_evt = None      # threading.Event для мягкой остановки дренажа
+drain_lines = deque(maxlen=500)  # ОПЦИОНАЛЬНО: кольцевой буфер последних строк для дебага
+
+# ---------------------- Инициализация ---------------------
 app = Flask(__name__)
 
 io_lock = threading.Lock()
@@ -39,6 +46,32 @@ cycle_running = False # не используется, оставлено для
 ext_proc: subprocess.Popen | None = None
 
 TIMEOUT_SEC = 5.0  # базовый таймаут для ожидания датчиков (если понадобится)
+
+def _drain_stdout(proc: subprocess.Popen, stop_evt: threading.Event, sink_deque: deque | None = None):
+    """
+    Построчно читает proc.stdout, чтобы не забивался PIPE.
+    Если sink_deque передан — складывает строки в кольцевой буфер (для /api/ext/log, если захочешь).
+    """
+    try:
+        # Читаем до EOF. Даже если stop_evt установлен, дочерний процесс закроет stdout при завершении.
+        for line in iter(proc.stdout.readline, ''):
+            # убираем \n для компактности; можно не трогать, если нужно "как есть"
+            if sink_deque is not None:
+                sink_deque.append(line.rstrip('\n'))
+            # Если нужно «тихий» слив — просто не делаем ничего
+            if stop_evt.is_set():
+                # Не ломаем чтение сразу — дождёмся закрытия stdout child-процессом
+                pass
+    except Exception:
+        # Не шумим — поток служебный
+        pass
+    finally:
+        try:
+            if proc.stdout:
+                proc.stdout.close()
+        except Exception:
+            pass
+
 
 def load_devices_list():
     try:
@@ -122,10 +155,32 @@ def ext_start() -> bool:
         io = None
 
     script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cycle_onefile.py")
-    ext_proc = subprocess.Popen(
-        [sys.executable, script_path, "--device", sel],  # <-- здесь
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+    # Стартуем процесс с PIPE + безбуферный вывод
+    try:
+        ext_proc = subprocess.Popen(
+            [sys.executable, "-u", script_path, "--device", sel],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,               # line-buffered в Python-тексте
+            close_fds=True,
+            start_new_session=True,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        )
+    except Exception as e:
+        print(f"[EXT] spawn failed: {e}")
+        ext_proc = None
+        return False
+
+    # Поднимаем поток-дренаж, чтобы не забивался PIPE
+    drain_stop_evt = threading.Event()
+    drain_thread = threading.Thread(
+        target=_drain_stdout,
+        args=(ext_proc, drain_stop_evt, drain_lines),  # можно передать None вместо drain_lines для «тихого» слива
+        daemon=True,
     )
+    drain_thread.start()
+    
     return True
 
 @with_io_lock

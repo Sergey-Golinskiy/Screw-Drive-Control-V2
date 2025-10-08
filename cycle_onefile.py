@@ -73,7 +73,7 @@ POINTS = [
 ]
 
 # Серийный порт
-SERIAL_PORT = "/dev/ttyACM1"
+SERIAL_PORT = "/dev/ttyACM0"
 SERIAL_BAUD = 115200
 SERIAL_TIMEOUT = 0.5
 SERIAL_WTIMEOUT = 0.5
