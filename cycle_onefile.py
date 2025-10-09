@@ -1022,7 +1022,7 @@ def main():
                         abort = True
                         break
 
-                    time.sleep(0.3)
+                    time.sleep(0.55)
 
                     # перед закруткой — снова safety
                     if area_armed and io.sensor_state("AREA_SENSOR"):
