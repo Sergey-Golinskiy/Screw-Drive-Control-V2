@@ -1022,6 +1022,8 @@ def main():
                         abort = True
                         break
 
+                    time.sleep(0.7)
+
                     # перед закруткой — снова safety
                     if area_armed and io.sensor_state("AREA_SENSOR"):
                         ev_alarm("AREA_TRIP", "Спрацював захисний сенсор перед закручуванням. Зупинка. РУКИ ГЕТЬ.")
